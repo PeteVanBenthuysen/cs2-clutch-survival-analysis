@@ -3,6 +3,7 @@
 
 # Research Demo Scraper (private, not for public repo)
 research_demo_scraper/
+research_demos/
 
 # Python
 __pycache__/
