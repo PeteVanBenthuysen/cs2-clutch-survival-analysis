@@ -1,0 +1,58 @@
+{
+  "comment": "Mirage plant spot classifications for A and B sites based on bomb plant coordinates",
+  "a_site": {
+    "default": {
+      "center": [-253.97, -2134.08, -111.0],
+      "radius": 80,
+      "description": "Standard default plant, open site position"
+    },
+    "reverse_default": {
+      "center": [-324.63, -2037.06, -112.97],
+      "radius": 80,
+      "description": "Reverse default, closer to CT"
+    },
+    "triple_default": {
+      "center": [-554.97, -2103.72, -115.97],
+      "radius": 80,
+      "description": "Triple box default position"
+    },
+    "triple_ramp_side": {
+      "center": [-493.63, -2024.44, -115.97],
+      "radius": 80,
+      "description": "Triple box ramp side"
+    },
+    "triple_cat_side": {
+      "center": [-611.78, -1985.37, -115.97],
+      "radius": 80,
+      "description": "Triple box connector/cat side"
+    },
+    "ninja": {
+      "center": [-336.92, -2277.22, -103.97],
+      "radius": 80,
+      "description": "Ninja plant behind boxes"
+    }
+  },
+  "b_site": {
+    "default": {
+      "center": [-1969.03, 450.04, -95.97],
+      "radius": 80,
+      "description": "Standard B default plant position"
+    },
+    "cat": {
+      "center": [-1887.32, 242.07, -95.97],
+      "radius": 80,
+      "description": "Cat/short plant position"
+    },
+    "open": {
+      "center": [-2099.84, 244.68, -95.97],
+      "radius": 80,
+      "description": "Open site plant"
+    },
+    "empty": {
+      "center": [-2198.97, 89.03, -95.97],
+      "radius": 80,
+      "description": "Empty/corner plant position"
+    }
+  },
+  "fallback": "open"
+}

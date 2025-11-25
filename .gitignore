@@ -1,11 +1,12 @@
-# Environment Variables
+# ============================================================================
+# Environment & Secrets
+# ============================================================================
 .env
+*.env
 
-# Research Demo Scraper (private, not for public repo)
-research_demo_scraper/
-research_demos/
-
+# ============================================================================
 # Python
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -30,44 +31,69 @@ wheels/
 .installed.cfg
 *.egg
 
+# ============================================================================
 # Jupyter Notebook
+# ============================================================================
 .ipynb_checkpoints
 *.ipynb_checkpoints/
 
-# Data files (too large for GitHub)
+# ============================================================================
+# Data Files (Large/Private)
+# ============================================================================
+# Demo scraper and downloaded demos (private)
+research_demo_scraper/
+research_demos/
+
+# Raw/processed data folders
 data/raw/
 data/processed/
 data/external/
 
-# Keep only data structure documentation
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/external/.gitkeep
+# Keep configuration JSON files (zones, connectivity, visibility, plant spots)
+!data/*.json
 
-# Results (large files)
-results/models/*.pkl
-
-# Database
+# Database files
 *.db
 *.sqlite
 *.sqlite3
 
-# IDE
+# ============================================================================
+# Results & Outputs (Generated)
+# ============================================================================
+results/figures/*
+results/metrics/*
+results/tables/*
+results/models/*.pkl
+
+# Keep directory structure
+!results/figures/.gitkeep
+!results/metrics/.gitkeep
+!results/tables/.gitkeep
+
+# ============================================================================
+# C# / .NET (mesh_extractor)
+# ============================================================================
+mesh_extractor/
+
+# ============================================================================
+# IDE & Editors
+# ============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# ============================================================================
+# Operating System
+# ============================================================================
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Database setup (private)
-setup_database.py
-
-# Temporary files
+# ============================================================================
+# Temporary Files
+# ============================================================================
 *.tmp
 *.temp
 *.log

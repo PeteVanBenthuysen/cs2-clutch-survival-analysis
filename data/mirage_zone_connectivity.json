@@ -1,0 +1,248 @@
+{
+  "description": "Zone connectivity graph for Mirage A-site. Each zone lists its neighbors with approximate travel time in seconds (walking speed ~105 u/s, running ~210 u/s). Times are conservative estimates for walking.",
+  
+  "connectivity": {
+    "CT_Pots": {
+      "neighbors": {
+        "CT_Cubby": 2.0,
+        "Blue_Door": 2.5,
+        "Stairs": 3.0,
+        "Ticket": 2.5
+      }
+    },
+    "CT_Cubby": {
+      "neighbors": {
+        "CT_Pots": 2.0,
+        "Blue_Door": 2.0,
+        "CT_Bottom_Ramp": 3.0,
+        "Trashcan_CT": 2.5
+      }
+    },
+    "Blue_Door": {
+      "neighbors": {
+        "CT_Pots": 2.5,
+        "CT_Cubby": 2.0,
+        "Trashcan_CT": 2.0,
+        "Ticket": 3.0
+      }
+    },
+    "Stairs": {
+      "neighbors": {
+        "CT_Pots": 3.0,
+        "Top_Stairs": 2.0,
+        "Bottom_Stairs": 1.5,
+        "Jungle": 3.0,
+        "Palace": 4.0
+      }
+    },
+    "Top_Stairs": {
+      "neighbors": {
+        "Stairs": 2.0,
+        "Jungle": 2.5,
+        "Palace": 3.0,
+        "Heaven": 3.5
+      }
+    },
+    "Bottom_Stairs": {
+      "neighbors": {
+        "Stairs": 1.5,
+        "Jungle": 2.0,
+        "Deep_Jungle_Cubby": 2.5
+      }
+    },
+    "Jungle": {
+      "neighbors": {
+        "Stairs": 3.0,
+        "Top_Stairs": 2.5,
+        "Bottom_Stairs": 2.0,
+        "Deep_Jungle_Cubby": 2.0,
+        "Jungle_Cubby": 1.5,
+        "Connector_Jungle_Cubby": 2.5
+      }
+    },
+    "Deep_Jungle_Cubby": {
+      "neighbors": {
+        "Jungle": 2.0,
+        "Bottom_Stairs": 2.5,
+        "Jungle_Cubby": 1.5
+      }
+    },
+    "Jungle_Cubby": {
+      "neighbors": {
+        "Jungle": 1.5,
+        "Deep_Jungle_Cubby": 1.5,
+        "Connector_Jungle_Cubby": 2.0
+      }
+    },
+    "Connector_Jungle_Cubby": {
+      "neighbors": {
+        "Jungle": 2.5,
+        "Jungle_Cubby": 2.0,
+        "Connector_Box_Cubby": 3.0,
+        "Connector_Window_Cubby": 3.5
+      }
+    },
+    "CT_Bottom_Ramp": {
+      "neighbors": {
+        "CT_Cubby": 3.0,
+        "Trashcan_CT": 2.0,
+        "A_Ramp_Room": 2.5,
+        "Ropz": 2.0
+      }
+    },
+    "Trashcan_CT": {
+      "neighbors": {
+        "CT_Cubby": 2.5,
+        "Blue_Door": 2.0,
+        "CT_Bottom_Ramp": 2.0,
+        "Ropz": 1.5
+      }
+    },
+    "Ropz": {
+      "neighbors": {
+        "CT_Bottom_Ramp": 2.0,
+        "Trashcan_CT": 1.5,
+        "CT_Side_Triple": 2.5,
+        "Triple": 3.0
+      }
+    },
+    "A_Ramp_Room": {
+      "neighbors": {
+        "CT_Bottom_Ramp": 2.5,
+        "Tetris": 3.0,
+        "Default": 3.5
+      }
+    },
+    "Ticket": {
+      "neighbors": {
+        "CT_Pots": 2.5,
+        "Blue_Door": 3.0,
+        "Palace": 3.5,
+        "Heaven": 3.0
+      }
+    },
+    "Palace": {
+      "neighbors": {
+        "Ticket": 3.5,
+        "Stairs": 4.0,
+        "Top_Stairs": 3.0,
+        "Heaven": 2.0,
+        "Under_Balcony": 2.5
+      }
+    },
+    "Heaven": {
+      "neighbors": {
+        "Palace": 2.0,
+        "Ticket": 3.0,
+        "Top_Stairs": 3.5,
+        "Under_Balcony": 1.5
+      }
+    },
+    "Under_Balcony": {
+      "neighbors": {
+        "Palace": 2.5,
+        "Heaven": 1.5,
+        "Bench": 2.0,
+        "Tetris": 3.0
+      }
+    },
+    "CT_Side_Triple": {
+      "neighbors": {
+        "Ropz": 2.5,
+        "Triple": 1.5,
+        "Triple_Conn_Side": 2.0
+      }
+    },
+    "Triple": {
+      "neighbors": {
+        "CT_Side_Triple": 1.5,
+        "Ropz": 3.0,
+        "Triple_Conn_Side": 2.0,
+        "Default": 2.5
+      }
+    },
+    "Triple_Conn_Side": {
+      "neighbors": {
+        "Triple": 2.0,
+        "CT_Side_Triple": 2.0,
+        "Default": 2.0,
+        "Connector_Box_Cubby": 3.0
+      }
+    },
+    "Default": {
+      "neighbors": {
+        "Triple": 2.5,
+        "Triple_Conn_Side": 2.0,
+        "A_Ramp_Room": 3.5,
+        "Firebox": 2.0,
+        "Tetris": 2.5,
+        "Bench": 3.0
+      }
+    },
+    "Firebox": {
+      "neighbors": {
+        "Default": 2.0,
+        "Tetris": 2.0,
+        "A_Ramp_Room": 3.0
+      }
+    },
+    "Tetris": {
+      "neighbors": {
+        "Firebox": 2.0,
+        "Default": 2.5,
+        "A_Ramp_Room": 3.0,
+        "Sandwich": 2.0,
+        "Under_Balcony": 3.0,
+        "Bench": 2.5
+      }
+    },
+    "Sandwich": {
+      "neighbors": {
+        "Tetris": 2.0,
+        "Bench": 1.5
+      }
+    },
+    "Bench": {
+      "neighbors": {
+        "Sandwich": 1.5,
+        "Tetris": 2.5,
+        "Default": 3.0,
+        "Under_Balcony": 2.0
+      }
+    },
+    "Connector_Box_Cubby": {
+      "neighbors": {
+        "Connector_Jungle_Cubby": 3.0,
+        "Connector_Window_Cubby": 2.0,
+        "Triple_Conn_Side": 3.0
+      }
+    },
+    "Connector_Window_Cubby": {
+      "neighbors": {
+        "Connector_Box_Cubby": 2.0,
+        "Connector_Jungle_Cubby": 3.5
+      }
+    },
+    "Ladder_Room": {
+      "neighbors": {
+        "Cat": 2.0,
+        "Connector_Mid_Cubby": 4.0,
+        "Market_Door": 8.0
+      }
+    }
+  },
+  
+  "speed_multipliers": {
+    "walking": 1.0,
+    "running": 0.5,
+    "shift_walking": 1.5
+  },
+  
+  "notes": [
+    "Travel times assume walking speed (~105 units/sec)",
+    "Running multiplier: 0.5 (cuts travel time in half)",
+    "Shift walking multiplier: 1.5 (increases travel time by 50%)",
+    "Times are conservative estimates - actual may vary based on exact path",
+    "Does not account for obstacles, utility blocking, or combat delays"
+  ]
+}

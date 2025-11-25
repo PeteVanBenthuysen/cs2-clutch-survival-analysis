@@ -1,0 +1,29 @@
+{
+  "comment": "Manual visibility graph for Mirage A-site zones based on map knowledge",
+  "zones": {
+    "Firebox": ["Default", "Bench", "Shadow", "Ninjabox", "Stairs", "A_Ramp_Room"],
+    "Default": ["Firebox", "Bench", "Shadow", "Ticket", "Stairs", "Jungle"],
+    "Bench": ["Firebox", "Default", "Shadow", "Ticket", "Stairs"],
+    "Shadow": ["Firebox", "Default", "Bench", "Ninjabox", "Ticket"],
+    "Ninjabox": ["Firebox", "Shadow", "Ticket"],
+    "Ticket": ["Default", "Bench", "Shadow", "Ninjabox", "CT_Pots", "CT_Cubby", "Blue_Door", "Heaven", "Palace"],
+    "Stairs": ["Firebox", "Default", "Bench", "Deep_Jungle_Cubby", "Connector_Jungle_Cubby", "Jungle", "A_Ramp_Room", "Ladder_Room"],
+    "Triple_Conn_Side": ["Connector_Jungle_Cubby", "Connector_Window_Cubby", "A_Ramp_Room"],
+    "Connector_Jungle_Cubby": ["Stairs", "Triple_Conn_Side", "Connector_Window_Cubby", "Jungle", "Deep_Jungle_Cubby"],
+    "Connector_Window_Cubby": ["Triple_Conn_Side", "Connector_Jungle_Cubby", "CT_Side_Triple"],
+    "Jungle": ["Default", "Stairs", "Connector_Jungle_Cubby", "Deep_Jungle_Cubby"],
+    "Deep_Jungle_Cubby": ["Stairs", "Connector_Jungle_Cubby", "Jungle"],
+    "A_Ramp_Room": ["Firebox", "Stairs", "Triple_Conn_Side", "CT_Bottom_Ramp", "Ropz", "Trashcan_CT", "Ladder_Room"],
+    "CT_Bottom_Ramp": ["A_Ramp_Room", "Trashcan_CT", "Ropz", "CT_Side_Triple"],
+    "Trashcan_CT": ["A_Ramp_Room", "CT_Bottom_Ramp", "Ropz"],
+    "Ropz": ["A_Ramp_Room", "CT_Bottom_Ramp", "Trashcan_CT", "CT_Side_Triple"],
+    "CT_Side_Triple": ["Connector_Window_Cubby", "CT_Bottom_Ramp", "Ropz", "CT_Pots", "Blue_Door"],
+    "CT_Pots": ["Ticket", "CT_Side_Triple", "CT_Cubby", "Blue_Door", "Heaven"],
+    "CT_Cubby": ["CT_Pots", "Blue_Door"],
+    "Blue_Door": ["Ticket", "CT_Pots", "CT_Cubby", "CT_Side_Triple", "Heaven"],
+    "Heaven": ["Ticket", "CT_Pots", "Blue_Door", "Palace"],
+    "Palace": ["Ticket", "Heaven", "Palace_Cubby"],
+    "Palace_Cubby": ["Palace"],
+    "Ladder_Room": ["Cat", "Connector_Mid_Cubby"]
+  }
+}
