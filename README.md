@@ -177,7 +177,6 @@ cs2-clutch-survival-analysis/
 │   ├── test_zone_classifier.py                     # Zone polygon tests
 │   ├── test_demo_parse.py                          # Demo parsing tests
 │   └── test_postplant_analysis.py                  # Legacy tests
-├── research_demo_scraper/                          # HLTV demo downloader
 ├── paper/
 │   └── abstract.md                                 # Research abstract
 ├── requirements.txt                                # Python dependencies
