@@ -1,10 +1,10 @@
 # CS2 Clutch Survival Analysis
 
-A data-driven approach to modeling post-plant survival probability in Counter-Strike 2 professional matches using empirical positioning data and hazard rate modeling.
+A data-driven approach to modeling post-plant survival probability in Counter-Strike 2 professional matches using empirical positioning data and hazard rate modeling on the map Mirage.
 
 ## Overview
 
-This project analyzes retake scenarios in CS2 professional play by tracking player positioning, combat outcomes, and utility usage during post-plant situations. Rather than relying on simplified probability estimates or arbitrary assumptions, we build empirical models from 582 professional demo files to understand how position, utility, and time affect survival in clutch scenarios.
+This project analyzes retake scenarios on Mirage (A and B bombsites) in CS2 professional play by tracking player positioning, combat outcomes, and utility usage during post-plant situations. Rather than relying on simplified probability estimates or arbitrary assumptions, we build empirical models from 581 professional demo files to understand how position, utility, and time affect survival in clutch scenarios.
 
 The core question: given a player's position at any moment during a retake, what factors determine their likelihood of survival, and how do these factors change over time?
 
