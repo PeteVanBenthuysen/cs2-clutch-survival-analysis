@@ -93,7 +93,7 @@ For any player position, we calculate potential enemy positions based on:
 - Weapon-based movement speed
 - Zones blocked by active utility (smokes prevent vision, mollies deny areas)
 
-Currently, threat probability uses inverse-time weighting (closer zones more likely). Future work will replace this with empirical position distributions from the episode data.
+Threat probability is weighted using empirical position distributions from the episode data, reflecting actual professional player positioning patterns rather than theoretical proximity assumptions.
 
 ## Current Pipeline
 
@@ -162,31 +162,32 @@ cs2-clutch-survival-analysis/
 │   ├── mirage_visibility.json                      # Visibility graph
 │   └── mirage_plant_spots.json                     # Bomb plant positions
 ├── src/
-│   ├── analyze_player_positioning.py    # Main pipeline: episodes + utility
-│   ├── build_connectivity_from_movement.py # Empirical connectivity builder
-│   ├── zone_classifier.py               # Polygon-based zone classification
-│   ├── zone_connectivity.py             # Reachability and threat cones
-│   ├── movement_speed.py                # Weapon-specific speeds
-│   ├── plant_spot_classifier.py         # Bomb plant position detection
-│   ├── utility_tracker.py               # Grenade tracking (unused in main pipeline)
-│   ├── audio_tracker.py                 # Sound event detection (unused)
-│   ├── strategic_intelligence.py        # CT movement analysis (unused)
-│   └── postplant_processor.py           # Legacy processing (unused)
+│   ├── analyze_player_positioning.py               # Main pipeline: episodes + utility
+│   ├── detect_retake.py                            # Retake detection with fallback logic
+│   ├── build_connectivity_from_movement.py         # Empirical connectivity builder
+│   ├── zone_classifier.py                          # Polygon-based zone classification
+│   ├── zone_connectivity.py                        # Reachability and threat cones
+│   ├── movement_speed.py                           # Weapon-specific speeds
+│   ├── plant_spot_classifier.py                    # Bomb plant position detection
+│   ├── utility_tracker.py                          # Grenade tracking
+│   ├── audio_tracker.py                            # Sound event detection
+│   └── strategic_intelligence.py                   # CT movement analysis
 ├── tests/
-│   ├── test_episode_tracking.py         # Episode validation on sample demo
-│   ├── test_zone_classifier.py          # Zone polygon tests
-│   ├── test_plant_spots.py              # Plant position tests
-│   └── test_postplant_analysis.py       # Legacy tests
+│   ├── test_episode_tracking.py                    # Episode validation on sample demo
+│   ├── test_zone_classifier.py                     # Zone polygon tests
+│   ├── test_demo_parse.py                          # Demo parsing tests
+│   └── test_postplant_analysis.py                  # Legacy tests
+├── research_demo_scraper/                          # HLTV demo downloader
 ├── paper/
-│   └── abstract.md                      # Research abstract
-├── requirements.txt                     # Python dependencies
-└── README.md                           # This file
+│   └── abstract.md                                 # Research abstract
+├── requirements.txt                                # Python dependencies
+└── README.md                                      # This file
 ```
 
 ## Dependencies
 
 Core requirements:
-- awpy >= 1.2.0 (CS2 demo parsing)
+- demoparser2 >= 0.26.0 (CS2 demo parsing)
 - pandas >= 2.0.0 (data manipulation)
 - numpy >= 1.24.0 (numerical operations)
 - shapely >= 2.0.0 (polygon geometry)
