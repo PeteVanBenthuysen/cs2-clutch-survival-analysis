@@ -5,6 +5,10 @@ Shows individual player episodes with damage, kills, deaths.
 
 import sys
 from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from demoparser2 import DemoParser
 from src.zone_classifier import MirageZoneClassifier
 from src.zone_connectivity import ZoneConnectivity
@@ -622,7 +626,7 @@ def get_active_utility_at_tick(smoke_detonate, smoke_expire, inferno_start, infe
 
 # Get all events
 bomb_plants = parser.parse_event('bomb_planted')
-ticks = parser.parse_ticks(['X', 'Y', 'Z', 'name', 'tick', 'team_num', 'is_alive', 'health', 'has_defuser'])
+ticks = parser.parse_ticks(['X', 'Y', 'Z', 'name', 'tick', 'team_num', 'is_alive', 'health', 'has_defuser', 'armor_value', 'has_helmet', 'active_weapon_name'])
 damage = parser.parse_event('player_hurt')
 deaths = parser.parse_event('player_death')
 round_starts = parser.parse_event('round_start')
@@ -720,6 +724,56 @@ for idx, plant in bomb_plants.iterrows():
     for _, player_row in t_alive_at_plant.iterrows():
         t_health_dict[player_row['name']] = player_row['health']
     
+    # Capture armor at plant_tick - create dict mapping player name to armor info
+    ct_armor_dict = {}
+    for _, player_row in ct_alive_at_plant.iterrows():
+        armor_value = player_row.get('armor_value', 0)
+        has_helmet = player_row.get('has_helmet', False)
+        
+        # Classify armor type
+        if armor_value > 0 and has_helmet:
+            armor_type = 'Kevlar+Helmet'
+        elif armor_value > 0:
+            armor_type = 'Kevlar'
+        else:
+            armor_type = 'None'
+        
+        ct_armor_dict[player_row['name']] = {
+            'armor_value': armor_value,
+            'has_helmet': has_helmet,
+            'armor_type': armor_type
+        }
+    
+    t_armor_dict = {}
+    for _, player_row in t_alive_at_plant.iterrows():
+        armor_value = player_row.get('armor_value', 0)
+        has_helmet = player_row.get('has_helmet', False)
+        
+        # Classify armor type
+        if armor_value > 0 and has_helmet:
+            armor_type = 'Kevlar+Helmet'
+        elif armor_value > 0:
+            armor_type = 'Kevlar'
+        else:
+            armor_type = 'None'
+        
+        t_armor_dict[player_row['name']] = {
+            'armor_value': armor_value,
+            'has_helmet': has_helmet,
+            'armor_type': armor_type
+        }
+    
+    # Capture weapons at plant_tick - create dict mapping player name to active weapon
+    ct_weapons_dict = {}
+    for _, player_row in ct_alive_at_plant.iterrows():
+        weapon = player_row.get('active_weapon_name', 'Unknown')
+        ct_weapons_dict[player_row['name']] = weapon
+    
+    t_weapons_dict = {}
+    for _, player_row in t_alive_at_plant.iterrows():
+        weapon = player_row.get('active_weapon_name', 'Unknown')
+        t_weapons_dict[player_row['name']] = weapon
+    
     # Skip rounds if filtering for specific round number
     if target_round and round_num != target_round:
         continue
@@ -805,6 +859,24 @@ for idx, plant in bomb_plants.iterrows():
     print(f"  T Health:")
     for player_name, hp in t_health_dict.items():
         print(f"    {player_name}: {hp} HP")
+    
+    # Debug: Show armor at plant
+    print(f"\n[DEBUG] CT Armor at Plant:")
+    for player_name, armor_info in ct_armor_dict.items():
+        print(f"    {player_name}: {armor_info['armor_type']} (value: {armor_info['armor_value']})")
+    
+    print(f"[DEBUG] T Armor at Plant:")
+    for player_name, armor_info in t_armor_dict.items():
+        print(f"    {player_name}: {armor_info['armor_type']} (value: {armor_info['armor_value']})")
+    
+    # Debug: Show weapons at plant
+    print(f"\n[DEBUG] CT Weapons at Plant:")
+    for player_name, weapon in ct_weapons_dict.items():
+        print(f"    {player_name}: {weapon}")
+    
+    print(f"[DEBUG] T Weapons at Plant:")
+    for player_name, weapon in t_weapons_dict.items():
+        print(f"    {player_name}: {weapon}")
     
     # Debug: Show ALL grenades thrown in window around retake (if available)
     if len(grenades_thrown) > 0:

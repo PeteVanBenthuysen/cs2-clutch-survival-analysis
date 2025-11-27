@@ -117,7 +117,7 @@ def count_utility_thrown(grenades_df, smoke_detonate, smoke_expire, inferno_star
                 (grenades_df['tick'] <= detonate_tick)
             ]
             
-            if len(throw_event) > 0:
+            if len(throw_event) > 0 and isinstance(throw_event, pd.DataFrame):
                 throw_tick = throw_event.iloc[0]['tick']
                 thrower_pos = ticks[
                     (ticks['name'] == throw_player) &
@@ -548,6 +548,26 @@ def get_active_utility_at_tick(smoke_detonate, smoke_expire, inferno_start, infe
     
     return result
 
+def count_alive_at_tick(ticks, tick, team_num):
+    """
+    Count players alive at a specific tick for a given team.
+    
+    Args:
+        ticks: DataFrame with tick data
+        tick: The tick to check
+        team_num: 2 for T, 3 for CT
+    
+    Returns:
+        Number of alive players for that team at that tick
+    """
+    alive_players = ticks[
+        (ticks['tick'] == tick) &
+        (ticks['team_num'] == team_num) &
+        (ticks['is_alive'] == True)
+    ]['name'].nunique()
+    
+    return alive_players
+
 # Track player episodes: list of {player, zone, duration, damage_taken, damage_dealt, died, got_kill}
 ct_episodes = []  # CT episodes during retakes
 t_episodes = []   # T episodes during post-plant
@@ -564,17 +584,33 @@ print("This will take ~45-50 minutes...\n")
 
 for demo_path in demo_files:
     try:
-        if demos_processed % 50 == 0:
+        demos_processed += 1  # Increment at start so progress shows current demo
+        if demos_processed % 50 == 1 or demos_processed == 1:  # Print at 1, 51, 101, etc.
             print(f"Progress: {demos_processed}/{len(demo_files)} demos, {total_retakes} retakes found...")
         
         parser = DemoParser(str(demo_path))
+        
+        # Verify this is a Mirage demo before processing
+        header = parser.parse_header()
+        map_name = header.get('map_name', '').lower()
+        if 'mirage' not in map_name:
+            print(f"  Skipping {demo_path.name}: Not a Mirage map (map={map_name})")
+            continue
         
         # Get all bomb plants
         bomb_plants = parser.parse_event('bomb_planted')
         bomb_defused = parser.parse_event('bomb_defused')
         
         # Get player positions
-        ticks = parser.parse_ticks(['X', 'Y', 'Z', 'name', 'tick', 'team_num', 'is_alive', 'health', 'has_defuser'])
+        ticks = parser.parse_ticks(['X', 'Y', 'Z', 'name', 'tick', 'team_num', 'is_alive', 'health', 'has_defuser', 'armor_value', 'has_helmet', 'active_weapon_name'])
+        
+        # Validate that parse results are DataFrames (some demos return lists)
+        if not isinstance(ticks, pd.DataFrame) or not isinstance(bomb_plants, pd.DataFrame):
+            print(f"  Skipping {demo_path.name}: Invalid data format")
+            continue
+        
+        # Tick data can be large for full matches, but filtering per retake handles this efficiently
+        # No need to skip - Phase 1 quick scan works fine, Phase 2 filters to small windows per retake
         
         # Get damage and death events
         damage = parser.parse_event('player_hurt')
@@ -584,6 +620,11 @@ for demo_path in demo_files:
         round_starts = parser.parse_event('round_start')
         round_ends = parser.parse_event('round_end')
         
+        # Validate critical DataFrames
+        if not isinstance(damage, pd.DataFrame) or not isinstance(deaths, pd.DataFrame) or not isinstance(round_starts, pd.DataFrame) or not isinstance(round_ends, pd.DataFrame):
+            print(f"  Skipping {demo_path.name}: Invalid event data format")
+            continue
+        
         # Get grenade events for utility tracking
         grenades_thrown = parser.parse_event('grenade_thrown')
         smoke_detonate = parser.parse_event('smokegrenade_detonate')
@@ -592,40 +633,86 @@ for demo_path in demo_files:
         inferno_expire = parser.parse_event('inferno_expire')
         flash_detonate = parser.parse_event('flashbang_detonate')
         
+        # PHASE 1: Quick scan - identify which plants have retakes (no expensive zone processing)
+        retake_plants = []
+        
         for idx, plant in bomb_plants.iterrows():
             plant_tick = plant['tick']
             
-            # Find round number and winner
-            round_num = len(round_starts[round_starts['tick'] <= plant_tick])
-            
-            # Find the round start for this plant
-            this_round_start = round_starts[round_starts['tick'] <= plant_tick].sort_values('tick')
-            if len(this_round_start) == 0:
-                continue
-            round_start_tick = this_round_start.iloc[-1]['tick']
-            
-            # Get round winner - find the NEXT round_end after plant (tick-based, not round number)
+            # Get round end tick quickly
             round_end = round_ends[round_ends['tick'] > plant_tick].sort_values('tick')
-            winner_team = round_end.iloc[0]['winner'] if len(round_end) > 0 else None
+            if len(round_end) > 0 and isinstance(round_end, pd.DataFrame):
+                round_end_tick_actual = round_end.iloc[0]['tick']
+            else:
+                round_end_tick_actual = plant_tick + 40*64
             
-            # Get actual round end tick for filtering deaths to this round only
-            round_end_tick_actual = round_end.iloc[0]['tick'] if len(round_end) > 0 else plant_tick + 40*64
-            
-            # Verify it's A-site by checking planter's position (bomb is planted where they stand)
+            # Quick bomb zone check (only need this once)
             planter_name = plant['user_name']
             planter_pos = ticks[
                 (ticks['tick'] == plant_tick) &
                 (ticks['name'] == planter_name)
             ]
             
-            if len(planter_pos) == 0:
+            if len(planter_pos) == 0 or not isinstance(planter_pos, pd.DataFrame):
                 continue
                 
             pos = planter_pos.iloc[0]
             bomb_zone = classifier.point_in_zone_A(pos['X'], pos['Y'], pos['Z'])
             
             if not bomb_zone:
-                continue  # Could not classify plant location
+                continue
+            
+            # FAST CHECK: Does this plant have a retake?
+            retake_result = detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_tick_actual)
+            
+            if retake_result['retake_detected']:
+                retake_plants.append({
+                    'plant': plant.to_dict() if hasattr(plant, 'to_dict') else plant,
+                    'plant_tick': plant_tick,
+                    'bomb_zone': bomb_zone,
+                    'retake_result': retake_result,
+                    'round_end_tick_actual': round_end_tick_actual
+                })
+        
+        print(f"  Found {len(retake_plants)} retakes in {demo_path.name}")
+        
+        # PHASE 2: Process only confirmed retakes with full detail
+        for retake_idx, retake_info in enumerate(retake_plants, 1):
+            print(f"    Processing retake {retake_idx}/{len(retake_plants)}...", end='', flush=True)
+            plant = retake_info['plant']
+            plant_tick = retake_info['plant_tick']
+            bomb_zone = retake_info['bomb_zone']
+            retake_result = retake_info['retake_result']
+            round_end_tick_actual = retake_info['round_end_tick_actual']
+            retake_tick = retake_result['retake_tick']
+            
+            # Find round number and winner
+            round_num = len(round_starts[round_starts['tick'] <= plant_tick])
+            
+            # Find the round start for this plant
+            this_round_start = round_starts[round_starts['tick'] <= plant_tick].sort_values('tick')
+            if len(this_round_start) == 0 or not isinstance(this_round_start, pd.DataFrame):
+                continue
+            round_start_tick = this_round_start.iloc[-1]['tick']
+            
+            # Get round winner
+            round_end = round_ends[round_ends['tick'] > plant_tick].sort_values('tick')
+            if len(round_end) > 0 and isinstance(round_end, pd.DataFrame):
+                winner_team = round_end.iloc[0]['winner']
+            else:
+                winner_team = None
+            
+            # Get planter position for plant spot
+            planter_name = plant['user_name']
+            planter_pos = ticks[
+                (ticks['tick'] == plant_tick) &
+                (ticks['name'] == planter_name)
+            ]
+            
+            if len(planter_pos) == 0 or not isinstance(planter_pos, pd.DataFrame):
+                continue
+                
+            pos = planter_pos.iloc[0]
             
             # Identify site based on zone name
             is_b_site = bomb_zone.startswith('B_') or bomb_zone.startswith('Cat_')
@@ -646,14 +733,6 @@ for demo_path in demo_files:
                 if has_kit:
                     ct_kits_at_plant[ct['name']] = True
             kits_available_at_plant = len(ct_kits_at_plant)
-            
-            # Use detect_retake function
-            retake_result = detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_tick_actual)
-            
-            if not retake_result['retake_detected']:
-                continue  # No retake detected (save round)
-            
-            retake_tick = retake_result['retake_tick']
             
             # Capture initial conditions at PLANT_TICK (not retake_tick)
             # This is the "starting state" when bomb was planted
@@ -682,6 +761,84 @@ for demo_path in demo_files:
             for _, player_row in t_alive_at_plant.iterrows():
                 t_health_dict[player_row['name']] = player_row['health']
             
+            # Capture armor at plant_tick - create dict mapping player name to armor info
+            ct_armor_dict = {}
+            for _, player_row in ct_alive_at_plant.iterrows():
+                armor_value = player_row.get('armor_value', 0)
+                has_helmet = player_row.get('has_helmet', False)
+                
+                # Classify armor type
+                if armor_value > 0 and has_helmet:
+                    armor_type = 'Kevlar+Helmet'
+                elif armor_value > 0:
+                    armor_type = 'Kevlar'
+                else:
+                    armor_type = 'None'
+                
+                ct_armor_dict[player_row['name']] = {
+                    'armor_value': int(armor_value),
+                    'has_helmet': bool(has_helmet),
+                    'armor_type': armor_type
+                }
+            
+            t_armor_dict = {}
+            for _, player_row in t_alive_at_plant.iterrows():
+                armor_value = player_row.get('armor_value', 0)
+                has_helmet = player_row.get('has_helmet', False)
+                
+                # Classify armor type
+                if armor_value > 0 and has_helmet:
+                    armor_type = 'Kevlar+Helmet'
+                elif armor_value > 0:
+                    armor_type = 'Kevlar'
+                else:
+                    armor_type = 'None'
+                
+                t_armor_dict[player_row['name']] = {
+                    'armor_value': int(armor_value),
+                    'has_helmet': bool(has_helmet),
+                    'armor_type': armor_type
+                }
+            
+            # Capture weapons at plant_tick - create dict mapping player name to active weapon
+            ct_weapons_dict = {}
+            for _, player_row in ct_alive_at_plant.iterrows():
+                weapon = player_row.get('active_weapon_name', 'Unknown')
+                ct_weapons_dict[player_row['name']] = weapon
+            
+            t_weapons_dict = {}
+            for _, player_row in t_alive_at_plant.iterrows():
+                weapon = player_row.get('active_weapon_name', 'Unknown')
+                t_weapons_dict[player_row['name']] = weapon
+            
+            # ============================================================================
+            # CRITICAL OPTIMIZATION: Filter ticks to ONLY this retake's time window
+            # This prevents scanning 200k+ ticks for every utility/damage operation
+            # ============================================================================
+            retake_window_start = plant_tick - 22*64  # 22 seconds before plant (for utility tracking)
+            retake_window_end = round_end_tick_actual
+            
+            # Save full ticks and create filtered version
+            full_ticks = ticks
+            ticks = ticks[
+                (ticks['tick'] >= retake_window_start) &
+                (ticks['tick'] <= retake_window_end)
+            ].copy()
+            
+            if len(ticks) == 0:
+                ticks = full_ticks
+                continue
+            
+            # Also filter grenades and damage to this window
+            grenades_window = grenades_thrown[
+                (grenades_thrown['tick'] >= retake_window_start) &
+                (grenades_thrown['tick'] <= retake_window_end)
+            ]
+            damage_window = damage[
+                (damage['tick'] >= retake_window_start) &
+                (damage['tick'] <= retake_window_end)
+            ]
+            
             # Get active utility at retake start (smokes/mollies/flashes already active from pre-plant)
             active_utility = get_active_utility_at_tick(
                 smoke_detonate, smoke_expire, inferno_start, inferno_expire, flash_detonate,
@@ -693,6 +850,9 @@ for demo_path in demo_files:
                 b_site_retakes += 1
             else:
                 a_site_retakes += 1
+            
+            # Remove tick filtering optimization - causes issues with code expecting full DataFrame
+            # The utility function and other operations need access to full tick history
             
             # Calculate actual round end tick (when round actually ended)
             # Filter deaths to this round only (between plant and round_end_tick_actual)
@@ -709,7 +869,7 @@ for demo_path in demo_files:
                     (ticks['name'] == death['user_name']) &
                     (ticks['tick'] == death['tick'] - 1)  # Check tick before death
                 ]
-                if len(victim_team_data) > 0:
+                if len(victim_team_data) > 0 and isinstance(victim_team_data, pd.DataFrame):
                     victim_team = victim_team_data.iloc[0]['team_num']
                     if victim_team == 2:  # T died
                         if death['tick'] > last_t_death_tick:
@@ -717,12 +877,13 @@ for demo_path in demo_files:
             
             # Check if bomb was defused in this round
             bomb_defused_tick = None
-            round_defuses = bomb_defused[
-                (bomb_defused['tick'] >= retake_tick) &
-                (bomb_defused['tick'] <= round_end_tick_actual)
-            ]
-            if len(round_defuses) > 0:
-                bomb_defused_tick = round_defuses.iloc[0]['tick']
+            if isinstance(bomb_defused, pd.DataFrame) and len(bomb_defused) > 0:
+                round_defuses = bomb_defused[
+                    (bomb_defused['tick'] >= retake_tick) &
+                    (bomb_defused['tick'] <= round_end_tick_actual)
+                ]
+                if len(round_defuses) > 0 and isinstance(round_defuses, pd.DataFrame):
+                    bomb_defused_tick = round_defuses.iloc[0]['tick']
             
             # Round ends when: last T dies OR bomb defused OR 15s after retake (whichever comes first)
             round_end_tick = retake_tick + 15*64  # Default cap at 15s
@@ -760,7 +921,7 @@ for demo_path in demo_files:
                 ]
                 
                 # If player died, only track up to death tick; otherwise full window
-                if len(player_death) > 0:
+                if len(player_death) > 0 and isinstance(player_death, pd.DataFrame):
                     player_end_tick = player_death.iloc[0]['tick']
                 else:
                     player_end_tick = analysis_end
@@ -782,7 +943,7 @@ for demo_path in demo_files:
                     (ticks['is_alive'] == True)
                 ].sort_values('tick')
                 
-                if len(player_ticks) == 0:
+                if len(player_ticks) == 0 or not isinstance(player_ticks, pd.DataFrame):
                     continue
                 
                 # Check if this CT player picks up a kit during retake window
@@ -797,11 +958,14 @@ for demo_path in demo_files:
                         kit_pickup_tick = curr_row['tick']
                         break
                 
-                # Track zone transitions
+                # Track zone transitions (sample every 16 ticks = 0.25s for performance)
                 current_zone = None
                 zone_entry_tick = None
                 
-                for _, pos in player_ticks.iterrows():
+                # Sample ticks for performance - check every 16 ticks instead of all
+                sampled_ticks = player_ticks[player_ticks.index % 16 == 0]
+                
+                for _, pos in sampled_ticks.iterrows():
                     zone = classifier.point_in_zone_A(pos['X'], pos['Y'], pos['Z'])
                     
                     if zone != current_zone:
@@ -845,6 +1009,38 @@ for demo_path in demo_files:
                             time_since_plant = (zone_entry_tick - plant_tick) / 64.0
                             time_remaining_on_bomb = 40.0 - time_since_plant
                             
+                            # Dynamic player counts at THIS episode's zone_entry_tick
+                            ct_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=3)
+                            t_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=2)
+                            numerical_advantage_current = ct_count_current - t_count_current
+                            
+                            # Get player's current HP at zone_entry_tick (when they entered THIS zone)
+                            zone_entry_hp_row = player_ticks[player_ticks['tick'] == zone_entry_tick]
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                player_hp_current = int(zone_entry_hp_row.iloc[0]['health'])
+                            else:
+                                player_hp_current = ct_health_dict.get(player, 0)  # Fallback to plant HP
+                            
+                            # Get player's current armor at zone_entry_tick
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                armor_value = int(zone_entry_hp_row.iloc[0]['armor_value'])
+                                has_helmet = bool(zone_entry_hp_row.iloc[0]['has_helmet'])
+                                if armor_value > 0 and has_helmet:
+                                    armor_type = 'Kevlar+Helmet'
+                                elif armor_value > 0:
+                                    armor_type = 'Kevlar'
+                                else:
+                                    armor_type = 'None'
+                                player_armor_current = {'armor_value': armor_value, 'has_helmet': has_helmet, 'armor_type': armor_type}
+                            else:
+                                player_armor_current = ct_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'})
+                            
+                            # Get player's current weapon at zone_entry_tick
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                player_weapon_current = zone_entry_hp_row.iloc[0]['active_weapon_name']
+                            else:
+                                player_weapon_current = ct_weapons_dict.get(player, 'Unknown')
+                            
                             # Note: utility_thrown is tracked for full window, saved once at end
                             
                             ct_episodes.append({
@@ -867,9 +1063,21 @@ for demo_path in demo_files:
                                 'numerical_advantage': numerical_advantage,
                                 'ct_count_at_retake': ct_count_at_retake,
                                 't_count_at_retake': t_count_at_retake,
-                                'player_hp_at_plant': ct_health_dict.get(player, 0),  # This player's HP
+                                'ct_count_current': ct_count_current,  # Dynamic: alive at zone_entry_tick
+                                't_count_current': t_count_current,  # Dynamic: alive at zone_entry_tick
+                                'numerical_advantage_current': numerical_advantage_current,  # Dynamic advantage
+                                'player_hp_at_plant': ct_health_dict.get(player, 0),  # This player's HP at plant
+                                'player_hp_current': player_hp_current,  # This player's HP at zone entry (dynamic)
                                 'ct_health_at_plant': ct_health_dict,  # All CT health
                                 't_health_at_plant': t_health_dict,  # All T health
+                                'player_armor_at_plant': ct_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'}),  # This player's armor
+                                'player_armor_current': player_armor_current,  # This player's armor at zone entry (dynamic)
+                                'ct_armor_at_plant': ct_armor_dict,  # All CT armor
+                                't_armor_at_plant': t_armor_dict,  # All T armor
+                                'player_weapon_at_plant': ct_weapons_dict.get(player, 'Unknown'),  # This player's weapon
+                                'player_weapon_current': player_weapon_current,  # This player's weapon at zone entry (dynamic)
+                                'ct_weapons_at_plant': ct_weapons_dict,  # All CT weapons
+                                't_weapons_at_plant': t_weapons_dict,  # All T weapons
                                 'had_kit_at_plant': player_had_kit_at_plant,
                                 'kit_pickup_tick': kit_pickup_tick
                             })
@@ -914,6 +1122,38 @@ for demo_path in demo_files:
                     time_since_plant = (zone_entry_tick - plant_tick) / 64.0
                     time_remaining_on_bomb = 40.0 - time_since_plant
                     
+                    # Dynamic player counts at THIS episode's zone_entry_tick
+                    ct_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=3)
+                    t_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=2)
+                    numerical_advantage_current = ct_count_current - t_count_current
+                    
+                    # Get player's current HP at zone_entry_tick (when they entered THIS zone)
+                    zone_entry_hp_row = player_ticks[player_ticks['tick'] == zone_entry_tick]
+                    if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                        player_hp_current = int(zone_entry_hp_row.iloc[0]['health'])
+                    else:
+                        player_hp_current = ct_health_dict.get(player, 0)  # Fallback to plant HP
+                    
+                    # Get player's current armor at zone_entry_tick
+                    if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                        armor_value = int(zone_entry_hp_row.iloc[0]['armor_value'])
+                        has_helmet = bool(zone_entry_hp_row.iloc[0]['has_helmet'])
+                        if armor_value > 0 and has_helmet:
+                            armor_type = 'Kevlar+Helmet'
+                        elif armor_value > 0:
+                            armor_type = 'Kevlar'
+                        else:
+                            armor_type = 'None'
+                        player_armor_current = {'armor_value': armor_value, 'has_helmet': has_helmet, 'armor_type': armor_type}
+                    else:
+                        player_armor_current = ct_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'})
+                    
+                    # Get player's current weapon at zone_entry_tick
+                    if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                        player_weapon_current = zone_entry_hp_row.iloc[0]['active_weapon_name']
+                    else:
+                        player_weapon_current = ct_weapons_dict.get(player, 'Unknown')
+                    
                     # Save final episode with full-window utility
                     ct_episodes.append({
                         'zone': current_zone,
@@ -935,9 +1175,21 @@ for demo_path in demo_files:
                         'numerical_advantage': numerical_advantage,
                         'ct_count_at_retake': ct_count_at_retake,
                         't_count_at_retake': t_count_at_retake,
-                        'player_hp_at_plant': ct_health_dict.get(player, 0),  # This player's HP
+                        'ct_count_current': ct_count_current,  # Dynamic: alive at zone_entry_tick
+                        't_count_current': t_count_current,  # Dynamic: alive at zone_entry_tick
+                        'numerical_advantage_current': numerical_advantage_current,  # Dynamic advantage
+                        'player_hp_at_plant': ct_health_dict.get(player, 0),  # This player's HP at plant
+                        'player_hp_current': player_hp_current,  # This player's HP at zone entry (dynamic)
                         'ct_health_at_plant': ct_health_dict,  # All CT health
                         't_health_at_plant': t_health_dict,  # All T health
+                        'player_armor_at_plant': ct_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'}),  # This player's armor
+                        'player_armor_current': player_armor_current,  # This player's armor at zone entry (dynamic)
+                        'ct_armor_at_plant': ct_armor_dict,  # All CT armor
+                        't_armor_at_plant': t_armor_dict,  # All T armor
+                        'player_weapon_at_plant': ct_weapons_dict.get(player, 'Unknown'),  # This player's weapon
+                        'player_weapon_current': player_weapon_current,  # This player's weapon at zone entry (dynamic)
+                        'ct_weapons_at_plant': ct_weapons_dict,  # All CT weapons
+                        't_weapons_at_plant': t_weapons_dict,  # All T weapons
                         'had_kit_at_plant': player_had_kit_at_plant,
                         'kit_pickup_tick': kit_pickup_tick
                     })
@@ -961,7 +1213,7 @@ for demo_path in demo_files:
                 ]
                 
                 # If player died, only track up to death tick; otherwise through retake
-                if len(player_death) > 0:
+                if len(player_death) > 0 and isinstance(player_death, pd.DataFrame):
                     player_end_tick = player_death.iloc[0]['tick']
                 else:
                     player_end_tick = t_analysis_end
@@ -974,19 +1226,20 @@ for demo_path in demo_files:
                     player, plant_tick, player_end_tick,
                     classifier, ticks, damage
                 )
-                                player_ticks = ticks[
+                
+                player_ticks = ticks[
                     (ticks['tick'] >= plant_tick) &
                     (ticks['tick'] <= player_end_tick) &
                     (ticks['name'] == player) &
                     (ticks['is_alive'] == True)
                 ].sort_values('tick')
                 
-                if len(player_ticks) == 0:
+                if len(player_ticks) == 0 or not isinstance(player_ticks, pd.DataFrame):
                     continue
                 
                 # Check if this CT player picks up a kit during retake window
                 kit_pickup_tick = None
-                player_had_kit_at_plant = ct_player in ct_kits_at_plant
+                player_had_kit_at_plant = player in ct_kits_at_plant
                 for idx in range(1, len(player_ticks)):
                     prev_row = player_ticks.iloc[idx-1]
                     curr_row = player_ticks.iloc[idx]
@@ -999,7 +1252,10 @@ for demo_path in demo_files:
                 current_zone = None
                 zone_entry_tick = None
                 
-                for _, pos in player_ticks.iterrows():
+                # Sample ticks for performance - check every 16 ticks instead of all
+                sampled_ticks = player_ticks[player_ticks.index % 16 == 0]
+                
+                for _, pos in sampled_ticks.iterrows():
                     zone = classifier.point_in_zone_A(pos['X'], pos['Y'], pos['Z'])
                     
                     if zone != current_zone:
@@ -1038,6 +1294,38 @@ for demo_path in demo_files:
                             time_since_plant = (zone_entry_tick - plant_tick) / 64.0
                             time_remaining_on_bomb = 40.0 - time_since_plant
                             
+                            # Dynamic player counts at THIS episode's zone_entry_tick
+                            ct_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=3)
+                            t_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=2)
+                            numerical_advantage_current = ct_count_current - t_count_current
+                            
+                            # Get player's current HP at zone_entry_tick (when they entered THIS zone)
+                            zone_entry_hp_row = player_ticks[player_ticks['tick'] == zone_entry_tick]
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                player_hp_current = int(zone_entry_hp_row.iloc[0]['health'])
+                            else:
+                                player_hp_current = t_health_dict.get(player, 0)  # Fallback to plant HP
+                            
+                            # Get player's current armor at zone_entry_tick
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                armor_value = int(zone_entry_hp_row.iloc[0]['armor_value'])
+                                has_helmet = bool(zone_entry_hp_row.iloc[0]['has_helmet'])
+                                if armor_value > 0 and has_helmet:
+                                    armor_type = 'Kevlar+Helmet'
+                                elif armor_value > 0:
+                                    armor_type = 'Kevlar'
+                                else:
+                                    armor_type = 'None'
+                                player_armor_current = {'armor_value': armor_value, 'has_helmet': has_helmet, 'armor_type': armor_type}
+                            else:
+                                player_armor_current = t_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'})
+                            
+                            # Get player's current weapon at zone_entry_tick
+                            if len(zone_entry_hp_row) > 0 and isinstance(zone_entry_hp_row, pd.DataFrame):
+                                player_weapon_current = zone_entry_hp_row.iloc[0]['active_weapon_name']
+                            else:
+                                player_weapon_current = t_weapons_dict.get(player, 'Unknown')
+                            
                             # Note: utility_thrown is tracked for full window, saved once at end
                             
                             t_episodes.append({
@@ -1060,9 +1348,21 @@ for demo_path in demo_files:
                                 'numerical_advantage': numerical_advantage,
                                 'ct_count_at_retake': ct_count_at_retake,
                                 't_count_at_retake': t_count_at_retake,
-                                'player_hp_at_plant': t_health_dict.get(player, 0),  # This player's HP
+                                'ct_count_current': ct_count_current,  # Dynamic: alive at zone_entry_tick
+                                't_count_current': t_count_current,  # Dynamic: alive at zone_entry_tick
+                                'numerical_advantage_current': numerical_advantage_current,  # Dynamic advantage
+                                'player_hp_at_plant': t_health_dict.get(player, 0),  # This player's HP at plant
+                                'player_hp_current': player_hp_current,  # This player's HP at zone entry (dynamic)
                                 'ct_health_at_plant': ct_health_dict,  # All CT health
-                                't_health_at_plant': t_health_dict  # All T health
+                                't_health_at_plant': t_health_dict,  # All T health
+                                'player_armor_at_plant': t_armor_dict.get(player, {}),  # This player's armor
+                                'player_armor_current': player_armor_current,  # This player's armor at zone entry (dynamic)
+                                'ct_armor_at_plant': ct_armor_dict,  # All CT armor
+                                't_armor_at_plant': t_armor_dict,  # All T armor
+                                'player_weapon_at_plant': t_weapons_dict.get(player, 'Unknown'),  # This player's weapon
+                                'player_weapon_current': player_weapon_current,  # This player's weapon at zone entry (dynamic)
+                                'ct_weapons_at_plant': ct_weapons_dict,  # All CT weapons
+                                't_weapons_at_plant': t_weapons_dict  # All T weapons
                             })
                         
                         current_zone = zone
@@ -1103,6 +1403,38 @@ for demo_path in demo_files:
                     time_since_plant = (zone_entry_tick - plant_tick) / 64.0
                     time_remaining_on_bomb = 40.0 - time_since_plant
                     
+                    # Dynamic player counts at THIS episode's zone_entry_tick
+                    ct_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=3)
+                    t_count_current = count_alive_at_tick(ticks, zone_entry_tick, team_num=2)
+                    numerical_advantage_current = ct_count_current - t_count_current
+                    
+                    # Get player's current HP at zone_entry_tick (when they entered THIS zone)
+                    zone_entry_hp_row = player_ticks[player_ticks['tick'] == zone_entry_tick]
+                    if len(zone_entry_hp_row) > 0:
+                        player_hp_current = int(zone_entry_hp_row.iloc[0]['health'])
+                    else:
+                        player_hp_current = t_health_dict.get(player, 0)  # Fallback to plant HP
+                    
+                    # Get player's current armor at zone_entry_tick
+                    if len(zone_entry_hp_row) > 0:
+                        armor_value = int(zone_entry_hp_row.iloc[0]['armor_value'])
+                        has_helmet = bool(zone_entry_hp_row.iloc[0]['has_helmet'])
+                        if armor_value > 0 and has_helmet:
+                            armor_type = 'Kevlar+Helmet'
+                        elif armor_value > 0:
+                            armor_type = 'Kevlar'
+                        else:
+                            armor_type = 'None'
+                        player_armor_current = {'armor_value': armor_value, 'has_helmet': has_helmet, 'armor_type': armor_type}
+                    else:
+                        player_armor_current = t_armor_dict.get(player, {'armor_value': 0, 'has_helmet': False, 'armor_type': 'None'})
+                    
+                    # Get player's current weapon at zone_entry_tick
+                    if len(zone_entry_hp_row) > 0:
+                        player_weapon_current = zone_entry_hp_row.iloc[0]['active_weapon_name']
+                    else:
+                        player_weapon_current = t_weapons_dict.get(player, 'Unknown')
+                    
                     # Save final episode with full-window utility
                     t_episodes.append({
                         'zone': current_zone,
@@ -1124,17 +1456,29 @@ for demo_path in demo_files:
                         'numerical_advantage': numerical_advantage,
                         'ct_count_at_retake': ct_count_at_retake,
                         't_count_at_retake': t_count_at_retake,
-                        'player_hp_at_plant': t_health_dict.get(player, 0),  # This player's HP
+                        'ct_count_current': ct_count_current,  # Dynamic: alive at zone_entry_tick
+                        't_count_current': t_count_current,  # Dynamic: alive at zone_entry_tick
+                        'numerical_advantage_current': numerical_advantage_current,  # Dynamic advantage
+                        'player_hp_at_plant': t_health_dict.get(player, 0),  # This player's HP at plant
+                        'player_hp_current': player_hp_current,  # This player's HP at zone entry (dynamic)
                         'ct_health_at_plant': ct_health_dict,  # All CT health
-                        't_health_at_plant': t_health_dict  # All T health
+                        't_health_at_plant': t_health_dict,  # All T health
+                        'player_armor_at_plant': t_armor_dict.get(player, {}),  # This player's armor
+                        'player_armor_current': player_armor_current,  # This player's armor at zone entry (dynamic)
+                        'ct_armor_at_plant': ct_armor_dict,  # All CT armor
+                        't_armor_at_plant': t_armor_dict,  # All T armor
+                        'player_weapon_at_plant': t_weapons_dict.get(player, 'Unknown'),  # This player's weapon
+                        'player_weapon_current': player_weapon_current,  # This player's weapon at zone entry (dynamic)
+                        'ct_weapons_at_plant': ct_weapons_dict,  # All CT weapons
+                        't_weapons_at_plant': t_weapons_dict  # All T weapons
                     })
-        
-        demos_processed += 1
+            
+            # Restore full ticks for next retake
+            ticks = full_ticks
+            print(" OK")
         
     except Exception as e:
-        print(f"  Error in {demo_path.name}: {str(e)[:50]}")
-        demos_processed += 1
-        continue
+        print(f"  Error in {demo_path.name}: {str(e)[:80]}")
 
 print(f"\n{'='*80}")
 print(f"RESULTS: Analyzed {total_retakes} retakes from {demos_processed} demos")
@@ -1249,9 +1593,21 @@ output = {
         "numerical_advantage": "ct_count - t_count at plant. Positive = CT advantage, Negative = T advantage, 0 = Even.",
         "ct_count_at_retake": "Number of CTs alive when retake was detected (e.g., 3 in a 3v3 retake).",
         "t_count_at_retake": "Number of Ts alive when retake was detected (e.g., 3 in a 3v3 retake).",
-        "player_hp_at_plant": "This specific player's health points when bomb was planted (0-100).",
+        "ct_count_current": "Number of CTs alive at THIS episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
+        "t_count_current": "Number of Ts alive at THIS episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
+        "numerical_advantage_current": "ct_count_current - t_count_current. Dynamic man-advantage that changes during retake as players die.",
+        "player_hp_at_plant": "This specific player's health points when bomb was planted (0-100). Baseline health state.",
+        "player_hp_current": "This specific player's health points at zone_entry_tick (0-100). Dynamic HP that decreases as player takes damage during retake.",
         "ct_health_at_plant": "Dictionary mapping all CT player names to their HP at plant time.",
         "t_health_at_plant": "Dictionary mapping all T player names to their HP at plant time.",
+        "player_armor_at_plant": "This player's armor state at plant: {armor_value: 0-100, has_helmet: bool, armor_type: 'Kevlar+Helmet'|'Kevlar'|'None'}.",
+        "player_armor_current": "This player's armor state at zone_entry_tick: {armor_value: 0-100, has_helmet: bool, armor_type: 'Kevlar+Helmet'|'Kevlar'|'None'}. Dynamic armor that decreases as player takes damage.",
+        "ct_armor_at_plant": "Dictionary mapping all CT player names to their armor state at plant time.",
+        "t_armor_at_plant": "Dictionary mapping all T player names to their armor state at plant time.",
+        "player_weapon_at_plant": "This player's active weapon at plant time (e.g., 'AK-47', 'M4A1-S', 'AWP', 'USP-S').",
+        "player_weapon_current": "This player's active weapon at zone_entry_tick (e.g., 'AK-47', 'M4A1-S', 'AWP', 'USP-S'). Dynamic weapon that changes if player picks up a new weapon.",
+        "ct_weapons_at_plant": "Dictionary mapping all CT player names to their active weapon at plant time.",
+        "t_weapons_at_plant": "Dictionary mapping all T player names to their active weapon at plant time.",
         "plant_spot": "Specific plant location classification (e.g., 'default', 'triple_ramp_side', 'jungle', etc.). One of 14 defined plant positions.",
         "utility_thrown": "Utility grenades thrown by this player during their tracking window (full round for final episode). Includes zone classifications and timing.",
         "damage_taken_gun": "Gun damage received during this episode.",
@@ -1280,13 +1636,29 @@ with open(output_path, 'w') as f:
 
 print(f"\n{'='*80}")
 print(f"Saved positioning episodes to: {output_path}")
+
+# Convert to Parquet for efficient Cox modeling
+print(f"\nConverting to Parquet format for modeling...")
+ct_df = pd.DataFrame(ct_episodes)
+t_df = pd.DataFrame(t_episodes)
+
+ct_parquet_path = Path("data/ct_episodes.parquet")
+t_parquet_path = Path("data/t_episodes.parquet")
+ct_parquet_path.parent.mkdir(parents=True, exist_ok=True)
+
+ct_df.to_parquet(ct_parquet_path, index=False)
+t_df.to_parquet(t_parquet_path, index=False)
+
+print(f"  CT episodes saved to: {ct_parquet_path} ({len(ct_df)} episodes)")
+print(f"  T episodes saved to: {t_parquet_path} ({len(t_df)} episodes)")
 print(f"{'='*80}")
 print("\nThis data integrates with:")
 print("  - Zone connectivity (threat cone pathfinding)")
 print("  - Audio tracker (sound events affect hazard via information gain)")
 print("  - Survival model (P(survival | position, time, enemies, info))")
-print("\nNext steps:")
-print("  1. Load this episode data in survival model")
-print("  2. Combine with audio_tracker.py sound events")
-print("  3. Use zone_connectivity.py for threat propagation")
-print("  4. Calculate hazard rates conditioned on information state")
+print("\nNext steps for Cox Proportional Hazards Modeling:")
+print("  1. Load Parquet files: pd.read_parquet('data/ct_episodes.parquet')")
+print("  2. Prepare covariates: zone, plant_spot, time_remaining_on_bomb, player_hp_current, player_armor_current, player_weapon_current, etc.")
+print("  3. Fit Cox model: CoxPHFitter().fit(df, duration_col='duration_ticks', event_col='died')")
+print("  4. Analyze hazard ratios and survival curves by zone/equipment/advantage")
+print("  5. Generate paper results and visualizations")

@@ -24,7 +24,7 @@ This project addresses these limitations by modeling survival as a time-dependen
 
 ### Data Collection
 
-We parse 582 professional CS2 demo files from major tournaments (2023-2025) using the awpy Python library. For each bomb plant that results in a retake scenario, we extract:
+We parse 581 professional CS2 demo files from major tournaments (2023-2025) using the awpy Python library. For each bomb plant that results in a retake scenario, we extract:
 
 - Player positions at 64Hz tick rate
 - Damage events (weapon type, amount, source)
@@ -80,7 +80,7 @@ This precision improves travel time estimates for threat cone modeling.
 We model zone connectivity two ways:
 
 1. Manual connectivity graph: Based on map knowledge and common routes
-2. Empirical connectivity from movement: Measured from actual player movement patterns in the 582 demos
+2. Empirical connectivity from movement: Measured from actual player movement patterns in the 581 demos
 
 The empirical approach (`build_connectivity_from_movement.py`) provides realistic travel times that account for how professional players actually navigate the map, rather than theoretical shortest paths.
 
@@ -113,7 +113,7 @@ python src/build_connectivity_from_movement.py
 ### 3. Episode Data Collection
 ```bash
 python src/analyze_player_positioning.py
-# Processes 582 demos
+# Processes 581 demos
 # Output: Episode-level data with positioning, damage, utility, outcomes
 ```
 

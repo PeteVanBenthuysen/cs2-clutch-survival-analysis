@@ -5,6 +5,7 @@ Identifies when CTs actively push toward bomb site (not exit hunting).
 
 # Zone keywords
 b_site_keywords = ['B_', 'Cat_', 'Market', 'Arches', 'Bench', 'Van_', 'B_Short', 'Dark', 'Backsite']
+a_site_keywords = ['A_', 'Stairs', 'Palace', 'Ramp', 'Jungle', 'Tetris', 'Shadow', 'Ninja', 'Firebox', 'Triple']
 a_approach_keywords = ['Connector', 'Stairs', 'Jungle', 'CT', 'Palace', 'Ramp']
 b_approach_keywords = ['Mid', 'Underpass', 'CT', 'Kitchen', 'Short']
 
@@ -12,6 +13,11 @@ def is_b_zone(zone):
     if not zone:
         return False
     return any(zone.startswith(kw) or kw in zone for kw in b_site_keywords)
+
+def is_a_zone(zone):
+    if not zone:
+        return False
+    return any(zone.startswith(kw) or kw in zone for kw in a_site_keywords)
 
 def is_approach_zone(zone, is_b_plant):
     if not zone:
@@ -53,8 +59,8 @@ def check_ct_movement_toward_site(ticks, classifier, dmg_tick, plant_tick, is_b_
         if not before_zone or not after_zone:
             continue
         
-        before_is_site = is_b_zone(before_zone) if is_b_plant else (before_zone and not is_b_zone(before_zone))
-        after_is_site = is_b_zone(after_zone) if is_b_plant else (after_zone and not is_b_zone(after_zone))
+        before_is_site = is_b_zone(before_zone) if is_b_plant else is_a_zone(before_zone)
+        after_is_site = is_b_zone(after_zone) if is_b_plant else is_a_zone(after_zone)
         
         before_is_approach = is_approach_zone(before_zone, is_b_plant)
         after_is_approach = is_approach_zone(after_zone, is_b_plant)
@@ -101,11 +107,15 @@ def detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_ti
     earliest_tick = plant_tick + 30*64
     retake_found = False
     
+    # OPTIMIZATION: Pre-filter ticks to only the relevant time window
+    # This prevents thousands of full-DataFrame filters in the loop below
+    relevant_ticks = ticks[(ticks['tick'] >= plant_tick) & (ticks['tick'] <= plant_tick + 30*64)]
+    
     for _, dmg in postplant_damage.iterrows():
         dmg_tick = dmg['tick']
         
-        attacker_pos = ticks[(ticks['tick'] == dmg_tick) & (ticks['name'] == dmg['attacker_name'])]
-        victim_pos = ticks[(ticks['tick'] == dmg_tick) & (ticks['name'] == dmg['user_name'])]
+        attacker_pos = relevant_ticks[(relevant_ticks['tick'] == dmg_tick) & (relevant_ticks['name'] == dmg['attacker_name'])]
+        victim_pos = relevant_ticks[(relevant_ticks['tick'] == dmg_tick) & (relevant_ticks['name'] == dmg['user_name'])]
         
         if len(attacker_pos) == 0 or len(victim_pos) == 0:
             continue
@@ -129,7 +139,7 @@ def detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_ti
             vic_approach = is_approach_zone(vic_zone, is_b_site)
             in_approach = att_approach or vic_approach
             
-            num_toward, num_away, num_stationary = check_ct_movement_toward_site(ticks, classifier, dmg_tick, plant_tick, is_b_site)
+            num_toward, num_away, num_stationary = check_ct_movement_toward_site(relevant_ticks, classifier, dmg_tick, plant_tick, is_b_site)
             
             # Require at least one CT actively moving toward site (not just exit hunting)
             # BUT: If fight is already ON SITE, that's sufficient evidence of retake even without movement
@@ -148,12 +158,12 @@ def detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_ti
     
     # Fallback: If no clear retake detected but there was on-site damage, use first on-site engagement
     if not retake_found and len(postplant_damage) > 0:
-        print("  [FALLBACK] No movement-based retake found, checking for any on-site engagement...")
+        # Fallback: check for any on-site CT vs T engagement (silent - no print)
         for _, dmg in postplant_damage.iterrows():
             dmg_tick = dmg['tick']
             
-            attacker_pos = ticks[(ticks['tick'] == dmg_tick) & (ticks['name'] == dmg['attacker_name'])]
-            victim_pos = ticks[(ticks['tick'] == dmg_tick) & (ticks['name'] == dmg['user_name'])]
+            attacker_pos = relevant_ticks[(relevant_ticks['tick'] == dmg_tick) & (relevant_ticks['name'] == dmg['attacker_name'])]
+            victim_pos = relevant_ticks[(relevant_ticks['tick'] == dmg_tick) & (relevant_ticks['name'] == dmg['user_name'])]
             
             if len(attacker_pos) == 0 or len(victim_pos) == 0:
                 continue
@@ -172,7 +182,10 @@ def detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_ti
                 if is_b_site:
                     on_site = att_is_b or vic_is_b
                 else:
-                    on_site = (att_zone and not att_is_b) or (vic_zone and not vic_is_b)
+                    # A-site: check if either attacker or victim is in actual A-site zone
+                    att_is_a = is_a_zone(att_zone)
+                    vic_is_a = is_a_zone(vic_zone)
+                    on_site = att_is_a or vic_is_a
                 
                 if on_site:
                     print(f"  [FALLBACK] Found on-site damage at {(dmg_tick-plant_tick)/64.0:.1f}s")
