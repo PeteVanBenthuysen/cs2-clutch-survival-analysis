@@ -26,7 +26,7 @@ This project addresses these limitations by modeling survival as a time-dependen
 
 ### Data Collection
 
-We parse 581 professional CS2 demo files from major tournaments (2023-2025) using the awpy Python library. For each bomb plant that results in a retake scenario, we extract:
+We parse 569 professional CS2 demo files from major tournaments (2023-2025) using the awpy and DemoParser2 Python library. For each bomb plant that results in a retake scenario, we extract:
 
 - Player positions at 64Hz tick rate
 - Damage events (weapon type, amount, source)
