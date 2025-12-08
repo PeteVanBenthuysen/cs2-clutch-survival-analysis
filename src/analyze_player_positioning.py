@@ -834,7 +834,7 @@ for demo_path in demo_files:
                 t_weapons_dict[player_row['name']] = weapon
             
             # ============================================================================
-            # CRITICAL OPTIMIZATION: Filter ticks to ONLY this retake's time window
+            # Optimization: Filter ticks to ONLY this retake's time window
             # This prevents scanning 200k+ ticks for every utility/damage operation
             # ============================================================================
             retake_window_start = plant_tick - 22*64  # 22 seconds before plant (for utility tracking)
@@ -1331,7 +1331,7 @@ for demo_path in demo_files:
                 else:
                     player_end_tick = t_analysis_end
                 
-                # Track ALL utility thrown during full post-plant window (plant to actual round end)
+                # Track all utility thrown during full post-plant window (plant to actual round end)
                 # This captures pre-retake utility that affects threat landscape
                 all_utility_thrown = count_utility_thrown(
                     grenades_thrown, smoke_detonate, smoke_expire,
@@ -1780,8 +1780,8 @@ output = {
         "numerical_advantage": "ct_count - t_count at plant. Positive = CT advantage, Negative = T advantage, 0 = Even.",
         "ct_count_at_retake": "Number of CTs alive when retake was detected (e.g., 3 in a 3v3 retake).",
         "t_count_at_retake": "Number of Ts alive when retake was detected (e.g., 3 in a 3v3 retake).",
-        "ct_count_current": "Number of CTs alive at THIS episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
-        "t_count_current": "Number of Ts alive at THIS episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
+        "ct_count_current": "Number of CTs alive at this episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
+        "t_count_current": "Number of Ts alive at this episode's zone_entry_tick. Dynamic count that updates as players die during retake.",
         "numerical_advantage_current": "ct_count_current - t_count_current. Dynamic man-advantage that changes during retake as players die.",
         "player_hp_at_plant": "This specific player's health points when bomb was planted (0-100). Baseline health state.",
         "player_hp_current": "This specific player's health points at zone_entry_tick (0-100). Dynamic HP that decreases as player takes damage during retake.",
@@ -1817,14 +1817,13 @@ output = {
     }
 }
 
-# Skip JSON save (numpy type serialization issues) - go straight to Parquet
+
 # Convert to Parquet for efficient Cox modeling
 print(f"\nConverting to Parquet format for modeling...")
 ct_df = pd.DataFrame(ct_episodes)
 t_df = pd.DataFrame(t_episodes)
 
 # Fix type inconsistencies for Parquet compatibility
-# Strategy: Convert dict columns to JSON strings, ensure scalar columns have consistent types
 print(f"  Fixing data types for Parquet compatibility...")
 
 import json as json_module

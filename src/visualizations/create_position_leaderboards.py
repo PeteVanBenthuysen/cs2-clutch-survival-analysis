@@ -25,9 +25,6 @@ t_df = pl.read_parquet("data/t_episodes.parquet")
 print(f"  Loaded {len(ct_df)} CT episodes")
 print(f"  Loaded {len(t_df)} T episodes")
 
-# TODO: Load Cox model results to get hazard rates
-# For now, we'll calculate empirical death rates per zone per scenario
-
 def calculate_scenario_hazard(df, scenario_params):
     """
     Calculate hazard rate (death rate) for each zone under specific scenario.
