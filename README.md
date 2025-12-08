@@ -4,9 +4,11 @@ A data-driven approach to modeling post-plant survival probability in Counter-St
 
 ## Overview
 
-This project analyzes retake scenarios on Mirage (A and B bombsites) in CS2 professional play by tracking player positioning, combat outcomes, and utility usage during post-plant situations. Rather than relying on simplified probability estimates or arbitrary assumptions, we build empirical models from 569 professional demo files to understand how position, utility, and time affect survival in clutch scenarios.
+This project analyzes post-plant survival in Counter-Strike 2 professional matches on Mirage using Cox proportional hazards regression with Ridge regularization (L2). We process 569 professional demo files from major tournaments (2023-2025) to model how positioning, equipment, utility state, and team composition affect player survival probability during both terrorist post-plant defense and counter-terrorist retake scenarios.
 
-The core question: given a player's position at any moment during a retake, what factors determine their likelihood of survival, and how do these factors change over time?
+Our models achieve concordance indices of 0.748-0.806, demonstrating strong predictive power for survival outcomes based on empirically-derived spatial features and game state variables. This provides a rigorous, data-driven framework for understanding tactical positioning in competitive CS2.
+
+The core question: given a player's position, equipment, and game state at any moment during post-plant play, what is their instantaneous hazard rate (risk of elimination), and how do these factors change dynamically over time?
 
 ## Motivation
 
@@ -43,16 +45,18 @@ Zone definitions are stored as GeoJSON polygons in `data/mirage_zones.json`, ena
 
 ### Episode Tracking
 
-Rather than analyzing entire rounds, we segment player behavior into episodes: continuous periods spent in a single zone. Each episode captures:
+Rather than analyzing entire rounds, we segment player behavior into episodes: continuous periods from retake start until death or round end. Each episode captures:
 
-- Duration (in ticks)
-- Damage taken (gun vs. utility)
-- Damage dealt (gun vs. utility)
-- Outcome (died, got kill, or survived)
-- Utility thrown during the episode
-- Round winner (for weighting analysis)
+- Duration (survival time in ticks)
+- Censoring (death event vs. survived to round end)
+- Initial zone position
+- Equipment state (health, armor, weapon type)
+- Utility state (active smokes, mollies, flashes)
+- Team composition (teammates alive, numerical advantage)
+- Spatial features (visibility degree, connectivity degree)
+- Crossfire potential
 
-This granular approach reveals how specific positions perform under different conditions.
+This produces 65,688 episodes (21,360 CT, 44,328 T) for survival analysis across both A-site and B-site scenarios.
 
 ### Active Utility Detection
 
@@ -99,7 +103,7 @@ Threat probability is weighted using empirical position distributions from the e
 
 ### 1. Zone and Connectivity Setup
 ```
-data/mirage_zones.json                     # 47 polygon zones
+data/mirage_zones.json                     # 291 polygon zones
 data/mirage_zone_connectivity.json         # Manual connectivity graph
 data/mirage_visibility.json                # Inter-zone visibility
 ```
@@ -113,15 +117,27 @@ python src/build_connectivity_from_movement.py
 ### 3. Episode Data Collection
 ```bash
 python src/analyze_player_positioning.py
-# Processes 581 demos
-# Output: Episode-level data with positioning, damage, utility, outcomes
+# Processes 569 demos
+# Output: data/ct_episodes.parquet, data/t_episodes.parquet
+# Total: 65,688 episodes (21,360 CT, 44,328 T)
 ```
 
-### 4. Testing and Validation
+### 4. Cox Survival Analysis with Ridge Regularization
+```bash
+python src/cox_survival_analysis_ridge.py
+# Fits 12 Cox models (4 sites × 3 model types)
+# Grid search over λ ∈ [0.01, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 5.0]
+# 5-fold grouped cross-validation
+# Output: results/cox_models/ridge_gridsearch/
+# Runtime: ~45-60 minutes
+```
+
+### 5. Testing and Validation
 ```bash
 python tests/test_episode_tracking.py
 # Validates episode tracking on sample demo
-# Shows active utility detection and expiration times
+python tests/test_zone_classifier.py
+# Validates zone polygon classification
 ```
 
 ## Key Features
@@ -163,8 +179,10 @@ cs2-clutch-survival-analysis/
 │   └── mirage_plant_spots.json                     # Bomb plant positions
 ├── src/
 │   ├── analyze_player_positioning.py               # Main pipeline: episodes + utility
+│   ├── cox_survival_analysis_ridge.py              # Ridge Cox models with grid search
 │   ├── detect_retake.py                            # Retake detection with fallback logic
 │   ├── build_connectivity_from_movement.py         # Empirical connectivity builder
+│   ├── build_visibility_from_damage.py             # Empirical visibility from damage events
 │   ├── zone_classifier.py                          # Polygon-based zone classification
 │   ├── zone_connectivity.py                        # Reachability and threat cones
 │   ├── movement_speed.py                           # Weapon-specific speeds
@@ -198,39 +216,68 @@ Install:
 pip install -r requirements.txt
 ```
 
-## Survival Model Development
+## Survival Model Results
 
-### Hazard Rate Modeling
+### Cox Proportional Hazards with Ridge Regularization
 
-The next phase involves building Cox proportional hazards models to estimate per-second elimination risk. Hazard ratios (HR) quantify how each factor affects survival probability:
+We implemented Cox proportional hazards regression with L2 (Ridge) regularization to model player survival during post-plant scenarios. Models were fit separately for each team-site combination (CT A-site, CT B-site, T A-site, T B-site) with three model specifications:
 
-- HR < 1: Factor reduces elimination risk (safer position)
-- HR > 1: Factor increases elimination risk (riskier position)
+1. Zone models: Zone dummy variables only (spatial effects)
+2. Equipment models: Equipment + utility + team composition (no zones)
+3. Full models: Zones + equipment + utility + interactions
 
-The model will incorporate:
+### Methodology
 
-- Position covariates: Current zone, visibility to plant site, distance to nearest cover
-- Threat covariates: Empirical zone occupancy distributions from episode data (replacing inverse-time weighting)
-- Economy covariates: Weapon loadouts (rifles, AWP, pistols), armor status, defuse kit availability
-- Utility covariates: Active smokes blocking critical lanes (jungle smoked, bomb smoked), mollies denying zones
-- Temporal covariates: Bomb timer remaining, time since last enemy detection, alive player counts
-- Combat covariates: Time to first contact, damage taken/dealt ratios
+Feature standardization: All continuous features (health, armor, visibility degree, connectivity degree, crossfire metrics) standardized to mean=0, std=1 before modeling. Critical for Ridge regression as L2 penalty is scale-dependent.
 
-This approach enables position-specific survival curves that update dynamically as utility expires, enemies are eliminated, and bomb timer depletes.
+Regularization: Grid search over λ ∈ [0.01, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 5.0] using 5-fold grouped cross-validation (grouped by retake to prevent data leakage).
 
-### Implementation Plan
+Interaction terms: Zone × smoke, zone × crossfire, zone × numerical advantage (created AFTER standardization to preserve interpretability).
 
-1. Build empirical position distributions from collected episode data to replace placeholder inverse-time threat weighting
-2. Fit Cox proportional hazards models using episode features with time-dependent covariates
-3. Validate model calibration and predictive accuracy on held-out tournaments
-4. Generate survival curves for key positions accounting for utility states and economy
+### Results (Concordance Index)
+
+Using grouped cross-validation and cluster-robust standard errors to account for correlated observations, our models achieve concordance indices ranging from 0.748 to 0.806:
+
+| Model | C-Index | CV Score | Optimal λ | Covariates |
+|-------|---------|----------|-----------|------------|
+| CT A Full | 0.748 | 0.718 | 0.01 | 104 |
+| CT B Full | 0.773 | 0.734 | 0.05 | 87 |
+| T A Full | 0.789 | 0.775 | 0.01 | 120 |
+| T B Full | 0.806 | 0.786 | 0.05 | 96 |
+
+Interpretation: C-index > 0.75 indicates strong predictive power. The T B-site full model achieves 0.806, demonstrating that positioning, equipment, and utility state accurately predict survival outcomes in post-plant defense scenarios.
+
+### Hazard Ratios (Key Findings)
+
+Hazard ratios (HR) quantify how each factor affects elimination risk:
+- HR < 1: Factor reduces risk (protective)
+- HR > 1: Factor increases risk (hazardous)
+
+Example findings (from full models):
+- Numerical advantage: HR ≈ 0.70-0.85 per additional teammate
+- Crossfire (teammate within 5m): HR ≈ 0.75-0.85 (protective)
+- Visibility degree: HR ≈ 1.05-1.15 per additional exposed zone
+- Active smoke: HR ≈ 0.80-0.90 (protective)
+- Position-specific: Certain zones show HR 0.50-0.60 (very safe) vs. HR 1.40-1.80 (very dangerous)
+
+### Model Outputs
+
+All results saved to `results/cox_models/ridge_gridsearch/`:
+- 12 fitted model objects (.pkl)
+- 12 hazard ratio tables with 95% CIs (.csv)
+- 12 forest plots visualizing HRs (.png)
+- 12 full model summaries (.html)
+- 4 survival curves by position (.png)
+- 4 top predictors tables (.csv)
+- Model statistics including optimal λ and CV scores (.json)
 
 ## Future Enhancements
 
-1. Multi-map support (currently Mirage only)
-2. Integration with real-time demo parsing for live probability overlays during matches
-3. Defender (CT) perspective analysis during retakes
-4. Team-specific tactical pattern recognition and strategy clustering
+1. Multi-map support: Extend zone classification and survival modeling to Dust2, Inferno, Nuke, etc.
+2. Time-varying covariates: Implement utility expiration as time-dependent covariates in Cox models
+3. Stratified analysis: Team-specific and player-specific hazard ratios
+4. Real-time prediction: Integration with live demo parsing for broadcast probability overlays
+5. Causal inference: Propensity score matching or instrumental variables to estimate causal effects of positioning decisions
 
 ## Research Applications
 
