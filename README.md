@@ -254,11 +254,13 @@ Hazard ratios (HR) quantify how each factor affects elimination risk:
 - HR > 1: Factor increases risk (hazardous)
 
 Example findings (from full models):
-- Numerical advantage: HR ≈ 0.70-0.85 per additional teammate
-- Crossfire (teammate within 5m): HR ≈ 0.75-0.85 (protective)
-- Visibility degree: HR ≈ 1.05-1.15 per additional exposed zone
-- Active smoke: HR ≈ 0.80-0.90 (protective)
-- Position-specific: Certain zones show HR 0.50-0.60 (very safe) vs. HR 1.40-1.80 (very dangerous)
+- Numerical advantage: HR = 0.59-0.80 (highly protective, p < 0.001)
+- Teammate count: HR = 0.96 per additional teammate (p < 0.001)
+- Armor: HR = 0.95 (protective, p < 0.001)
+- Health: HR = 0.83 per unit increase (protective, p < 0.001)
+- Helmet: HR = 0.83 (protective, p < 0.001)
+- Active smoke: HR = 1.04 (not significant, p = 0.75)
+- Position-specific: B Apps First Section HR = 0.68 (very safe) vs. Cat HR = 1.87 (very dangerous)
 
 ### Model Outputs
 
