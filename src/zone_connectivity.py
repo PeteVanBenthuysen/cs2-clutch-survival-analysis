@@ -17,18 +17,38 @@ class ZoneConnectivity:
     def __init__(self, connectivity_file: str = None, visibility_file: str = None):
         """Load zone connectivity graph and visibility graph."""
         if connectivity_file is None:
-            connectivity_file = Path(__file__).parent.parent / 'data' / 'mirage_zone_connectivity.json'
+            connectivity_file = Path(__file__).parent.parent / 'data' / 'mirage_zone_connectivity_from_movement.json'
         
         with open(connectivity_file, 'r') as f:
             data = json.load(f)
         
-        self.connectivity = data['connectivity']
-        self.speed_multipliers = data['speed_multipliers']  # Keep for backward compatibility
+        # New format: flat dict of zone -> {neighbor: count}
+        # Store as zone -> {'neighbors': {neighbor: travel_time}}
+        if 'connectivity' in data:
+            # Old manual format
+            self.connectivity = data['connectivity']
+            self.speed_multipliers = data.get('speed_multipliers', {})
+        else:
+            # New empirical format from movement data
+            # Convert counts to travel times (higher count = more traversals = faster/shorter path)
+            # Use inverse of count as proxy for travel time (normalized)
+            self.connectivity = {}
+            for zone, neighbors in data.items():
+                total_count = sum(neighbors.values())
+                travel_times = {}
+                for neighbor, count in neighbors.items():
+                    # Higher count = shorter relative time
+                    # Normalize so most frequent path = 1.0 second base time
+                    max_count = max(neighbors.values())
+                    travel_times[neighbor] = 1.0 * (max_count / count) if count > 0 else 10.0
+                self.connectivity[zone] = {'neighbors': travel_times}
+            self.speed_multipliers = {}  # Not needed with empirical data
+        
         self.movement_calculator = MovementSpeedCalculator()
         
-        # Load visibility graph
+        # Load visibility graph (from damage-based empirical data)
         if visibility_file is None:
-            visibility_file = Path(__file__).parent.parent / 'data' / 'mirage_visibility.json'
+            visibility_file = Path(__file__).parent.parent / 'data' / 'mirage_visibility_from_damage.json'
         
         if Path(visibility_file).exists():
             with open(visibility_file, 'r') as f:

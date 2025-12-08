@@ -1,0 +1,98 @@
+{
+  "ct_a_zone_model": {
+    "concordance_index": 0.6076347674741676,
+    "cv_concordance_mean": 0.5738577363257527,
+    "penalty": 0.01,
+    "num_episodes": 15336,
+    "num_deaths": 1137,
+    "num_covariates": 62
+  },
+  "ct_b_zone_model": {
+    "concordance_index": 0.6585668694067249,
+    "cv_concordance_mean": 0.6257601905630836,
+    "penalty": 0.01,
+    "num_episodes": 6024,
+    "num_deaths": 576,
+    "num_covariates": 44
+  },
+  "t_a_zone_model": {
+    "concordance_index": 0.6311533399906247,
+    "cv_concordance_mean": 0.6108354763963127,
+    "penalty": 0.01,
+    "num_episodes": 26882,
+    "num_deaths": 1522,
+    "num_covariates": 80
+  },
+  "t_b_zone_model": {
+    "concordance_index": 0.6066511440720114,
+    "cv_concordance_mean": 0.5395453609793108,
+    "penalty": 0.5,
+    "num_episodes": 17446,
+    "num_deaths": 714,
+    "num_covariates": 56
+  },
+  "ct_a_equip_model": {
+    "concordance_index": 0.6916013316021965,
+    "cv_concordance_mean": 0.6634670705603563,
+    "penalty": 0.01,
+    "num_episodes": 15336,
+    "num_deaths": 1137,
+    "num_covariates": 71
+  },
+  "ct_b_equip_model": {
+    "concordance_index": 0.7343167008764653,
+    "cv_concordance_mean": 0.702848464014042,
+    "penalty": 0.05,
+    "num_episodes": 6024,
+    "num_deaths": 576,
+    "num_covariates": 52
+  },
+  "t_a_equip_model": {
+    "concordance_index": 0.6940764367869312,
+    "cv_concordance_mean": 0.6766230992641696,
+    "penalty": 0.01,
+    "num_episodes": 26882,
+    "num_deaths": 1522,
+    "num_covariates": 87
+  },
+  "t_b_equip_model": {
+    "concordance_index": 0.7190067368746801,
+    "cv_concordance_mean": 0.6884166303069444,
+    "penalty": 0.05,
+    "num_episodes": 17446,
+    "num_deaths": 714,
+    "num_covariates": 63
+  },
+  "ct_a_full_model": {
+    "concordance_index": 0.7475032977367554,
+    "cv_concordance_mean": 0.7183807718751625,
+    "penalty": 0.01,
+    "num_episodes": 15336,
+    "num_deaths": 1137,
+    "num_covariates": 104
+  },
+  "ct_b_full_model": {
+    "concordance_index": 0.7725275976733379,
+    "cv_concordance_mean": 0.7342615135566074,
+    "penalty": 0.05,
+    "num_episodes": 6024,
+    "num_deaths": 576,
+    "num_covariates": 87
+  },
+  "t_a_full_model": {
+    "concordance_index": 0.7889111905677613,
+    "cv_concordance_mean": 0.7750380421355422,
+    "penalty": 0.01,
+    "num_episodes": 26882,
+    "num_deaths": 1522,
+    "num_covariates": 120
+  },
+  "t_b_full_model": {
+    "concordance_index": 0.8061622185457848,
+    "cv_concordance_mean": 0.7856847974218922,
+    "penalty": 0.05,
+    "num_episodes": 17446,
+    "num_deaths": 714,
+    "num_covariates": 96
+  }
+}

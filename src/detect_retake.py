@@ -182,10 +182,8 @@ def detect_retake(plant_tick, bomb_zone, ticks, damage, classifier, round_end_ti
                 if is_b_site:
                     on_site = att_is_b or vic_is_b
                 else:
-                    # A-site: check if either attacker or victim is in actual A-site zone
-                    att_is_a = is_a_zone(att_zone)
-                    vic_is_a = is_a_zone(vic_zone)
-                    on_site = att_is_a or vic_is_a
+                    # A-site: use same logic as main loop (anything not B-site)
+                    on_site = (att_zone and not att_is_b) or (vic_zone and not vic_is_b)
                 
                 if on_site:
                     print(f"  [FALLBACK] Found on-site damage at {(dmg_tick-plant_tick)/64.0:.1f}s")

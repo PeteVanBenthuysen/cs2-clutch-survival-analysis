@@ -21,8 +21,15 @@ def analyze_zone_transitions(demo_path, sample_interval=32):
     parser = DemoParser(demo_path)
     classifier = MirageZoneClassifier()
     
-    # Get sampled player positions (much faster than every tick)
+    # Verify this is actually a Mirage demo
     print(f"Parsing {Path(demo_path).name}...")
+    header = parser.parse_header()
+    map_name = header.get('map_name', '').lower()
+    if 'mirage' not in map_name:
+        print(f"  Skipping - not a Mirage demo (map: {map_name})")
+        return {}
+    
+    # Get sampled player positions (much faster than every tick)
     ticks = parser.parse_ticks(['X', 'Y', 'Z', 'name', 'tick', 'is_alive'])
     
     # Filter to alive players only
@@ -70,11 +77,17 @@ def build_connectivity_from_demos(demo_folder, min_transitions=5):
     print(f"Found {len(demos)} Mirage demos\n")
     
     # Analyze each demo
-    num_demos = min(30, len(demos))  # Process 30 demos
+    num_demos = len(demos)  # Process ALL demos
+    skipped = 0
     for i, demo_path in enumerate(demos[:num_demos], 1):
         print(f"[{i}/{num_demos}] Processing demo...")
         try:
             transitions = analyze_zone_transitions(str(demo_path), sample_interval=32)
+            
+            # Skip if not a Mirage demo
+            if not transitions:
+                skipped += 1
+                continue
             
             # Merge transitions
             for zone, neighbors in transitions.items():
@@ -84,6 +97,7 @@ def build_connectivity_from_demos(demo_folder, min_transitions=5):
             print(f"  Found {len(transitions)} zones with transitions")
         except Exception as e:
             print(f"  Error: {e}")
+            skipped += 1
             continue
     
     # Build final connectivity (zones with enough transitions)
@@ -100,14 +114,14 @@ def build_connectivity_from_demos(demo_folder, min_transitions=5):
             for neighbor, count in sorted(valid_neighbors.items(), key=lambda x: x[1], reverse=True):
                 print(f"  -> {neighbor}: {count} transitions")
     
-    return connectivity
+    return connectivity, skipped
 
 if __name__ == "__main__":
     # Build connectivity from demos
     demo_folder = r"research_demos\extracted"
     
     print("Building zone connectivity from actual player movement...\n")
-    connectivity = build_connectivity_from_demos(demo_folder, min_transitions=10)
+    connectivity, skipped = build_connectivity_from_demos(demo_folder, min_transitions=10)
     
     # Save results
     output_file = "data/mirage_zone_connectivity_from_movement.json"
@@ -116,3 +130,4 @@ if __name__ == "__main__":
     
     print(f"\n\nSaved to {output_file}")
     print(f"Found {len(connectivity)} zones with confirmed neighbors")
+    print(f"Skipped {skipped} non-Mirage demos")

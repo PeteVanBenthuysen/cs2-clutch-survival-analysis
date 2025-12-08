@@ -579,8 +579,8 @@ demo_files = list(Path("research_demos/extracted").rglob("*.dem"))
 total_retakes = 0
 demos_processed = 0
 
-print(f"\nFound {len(demo_files)} demo files to process")
-print("This will take ~45-50 minutes...\n")
+print(f"\nTEST MODE: Processing {len(demo_files)} demo file(s)")
+print("Verifying parquet output has smoke/molly time remaining fields...\n")
 
 for demo_path in demo_files:
     try:
@@ -632,6 +632,20 @@ for demo_path in demo_files:
         inferno_start = parser.parse_event('inferno_startburn')
         inferno_expire = parser.parse_event('inferno_expire')
         flash_detonate = parser.parse_event('flashbang_detonate')
+        
+        # Ensure all utility events are DataFrames (parser may return empty lists)
+        if isinstance(grenades_thrown, list):
+            grenades_thrown = pd.DataFrame()
+        if isinstance(smoke_detonate, list):
+            smoke_detonate = pd.DataFrame()
+        if isinstance(smoke_expire, list):
+            smoke_expire = pd.DataFrame()
+        if isinstance(inferno_start, list):
+            inferno_start = pd.DataFrame()
+        if isinstance(inferno_expire, list):
+            inferno_expire = pd.DataFrame()
+        if isinstance(flash_detonate, list):
+            flash_detonate = pd.DataFrame()
         
         # PHASE 1: Quick scan - identify which plants have retakes (no expensive zone processing)
         retake_plants = []
@@ -703,7 +717,15 @@ for demo_path in demo_files:
                 winner_team = None
             
             # Get planter position for plant spot
-            planter_name = plant['user_name']
+            try:
+                planter_name = plant['user_name']
+            except (TypeError, KeyError) as e:
+                print(f" FAILED - plant data issue")
+                print(f"      plant type: {type(plant)}, plant: {plant}")
+                import traceback
+                traceback.print_exc()
+                continue
+                
             planter_pos = ticks[
                 (ticks['tick'] == plant_tick) &
                 (ticks['name'] == planter_name)
@@ -830,14 +852,21 @@ for demo_path in demo_files:
                 continue
             
             # Also filter grenades and damage to this window
-            grenades_window = grenades_thrown[
-                (grenades_thrown['tick'] >= retake_window_start) &
-                (grenades_thrown['tick'] <= retake_window_end)
-            ]
-            damage_window = damage[
-                (damage['tick'] >= retake_window_start) &
-                (damage['tick'] <= retake_window_end)
-            ]
+            if len(grenades_thrown) > 0:
+                grenades_window = grenades_thrown[
+                    (grenades_thrown['tick'] >= retake_window_start) &
+                    (grenades_thrown['tick'] <= retake_window_end)
+                ]
+            else:
+                grenades_window = grenades_thrown
+            
+            if len(damage) > 0:
+                damage_window = damage[
+                    (damage['tick'] >= retake_window_start) &
+                    (damage['tick'] <= retake_window_end)
+                ]
+            else:
+                damage_window = damage
             
             # Get active utility at retake start (smokes/mollies/flashes already active from pre-plant)
             active_utility = get_active_utility_at_tick(
@@ -1041,9 +1070,44 @@ for demo_path in demo_files:
                             else:
                                 player_weapon_current = ct_weapons_dict.get(player, 'Unknown')
                             
+                            # Check utility state at zone_entry_tick
+                            active_utility = get_active_utility_at_tick(
+                                smoke_detonate, smoke_expire,
+                                inferno_start, inferno_expire,
+                                flash_detonate,
+                                zone_entry_tick, classifier, ticks,
+                                window_before=2*64  # 2 seconds for flash effects
+                            )
+                            
+                            # Is player in a smoke?
+                            player_in_smoke = any(smoke['zone'] == current_zone for smoke in active_utility['smokes'])
+                            
+                            # Is player in a molly?
+                            player_in_molly = any(molly['zone'] == current_zone for molly in active_utility['mollies'])
+                            
+                            # Was player recently flashed? (any flash within 2s)
+                            player_flashed = len(active_utility['recent_flashes']) > 0
+                            
+                            # Map-wide active utility zones (affects all players' hazard rates)
+                            active_smoke_zones = [s['zone'] for s in active_utility['smokes']]
+                            active_molly_zones = [m['zone'] for m in active_utility['mollies']]
+                            
+                            # Calculate time remaining for each smoke/molly (seconds until dissipation)
+                            smoke_time_remaining = {
+                                s['zone']: round((s['expire_tick'] - plant_tick) / 64.0, 2)
+                                for s in active_utility['smokes']
+                            }
+                            molly_time_remaining = {
+                                m['zone']: round((m['expire_tick'] - plant_tick) / 64.0, 2)
+                                for m in active_utility['mollies']
+                            }
+                            
                             # Note: utility_thrown is tracked for full window, saved once at end
                             
                             ct_episodes.append({
+                                'demo_file': str(demo_path),  # For grouping episodes by retake
+                                'round_num': round_num,  # For grouping episodes by retake
+                                'plant_tick': plant_tick,  # For grouping episodes by retake
                                 'zone': current_zone,
                                 'duration_ticks': duration_ticks,
                                 'damage_taken_gun': damage_taken_gun,
@@ -1056,6 +1120,13 @@ for demo_path in demo_files:
                                 'plant_spot': plant_spot,
                                 'round_winner': winner_team,
                                 'player_name': player,
+                                'in_smoke': player_in_smoke,  # Active utility state (individual)
+                                'in_molly': player_in_molly,  # Active utility state (individual)
+                                'flashed': player_flashed,  # Active utility state (individual)
+                                'active_smoke_zones': active_smoke_zones,  # Map-wide utility barriers
+                                'active_molly_zones': active_molly_zones,  # Map-wide utility barriers
+                                'smoke_time_remaining': str(smoke_time_remaining),  # {zone: seconds_left}
+                                'molly_time_remaining': str(molly_time_remaining),  # {zone: seconds_left}
                                 'utility_thrown': {},  # Per-episode tracking removed, using full-window below
                                 'time_remaining_on_bomb': time_remaining_on_bomb,  # Time-varying covariate
                                 'ct_count_at_plant': ct_count_at_plant,
@@ -1154,8 +1225,43 @@ for demo_path in demo_files:
                     else:
                         player_weapon_current = ct_weapons_dict.get(player, 'Unknown')
                     
+                    # Check utility state at zone_entry_tick
+                    active_utility = get_active_utility_at_tick(
+                        smoke_detonate, smoke_expire,
+                        inferno_start, inferno_expire,
+                        flash_detonate,
+                        zone_entry_tick, classifier, ticks,
+                        window_before=2*64  # 2 seconds for flash effects
+                    )
+                    
+                    # Is player in a smoke?
+                    player_in_smoke = any(smoke['zone'] == current_zone for smoke in active_utility['smokes'])
+                    
+                    # Is player in a molly?
+                    player_in_molly = any(molly['zone'] == current_zone for molly in active_utility['mollies'])
+                    
+                    # Was player recently flashed? (any flash within 2s)
+                    player_flashed = len(active_utility['recent_flashes']) > 0
+                    
+                    # Map-wide active utility zones (affects all players' hazard rates)
+                    active_smoke_zones = [s['zone'] for s in active_utility['smokes']]
+                    active_molly_zones = [m['zone'] for m in active_utility['mollies']]
+                    
+                    # Calculate time remaining for each smoke/molly (seconds until dissipation)
+                    smoke_time_remaining = {
+                        s['zone']: round((s['expire_tick'] - plant_tick) / 64.0, 2)
+                        for s in active_utility['smokes']
+                    }
+                    molly_time_remaining = {
+                        m['zone']: round((m['expire_tick'] - plant_tick) / 64.0, 2)
+                        for m in active_utility['mollies']
+                    }
+                    
                     # Save final episode with full-window utility
                     ct_episodes.append({
+                        'demo_file': str(demo_path),  # For grouping episodes by retake
+                        'round_num': round_num,  # For grouping episodes by retake
+                        'plant_tick': plant_tick,  # For grouping episodes by retake
                         'zone': current_zone,
                         'duration_ticks': duration_ticks,
                         'damage_taken_gun': damage_taken_gun,
@@ -1168,6 +1274,13 @@ for demo_path in demo_files:
                         'plant_spot': plant_spot,
                         'round_winner': winner_team,
                         'player_name': player,
+                        'in_smoke': player_in_smoke,  # Active utility state (individual)
+                        'in_molly': player_in_molly,  # Active utility state (individual)
+                        'flashed': player_flashed,  # Active utility state (individual)
+                        'active_smoke_zones': active_smoke_zones,  # Map-wide utility barriers
+                        'active_molly_zones': active_molly_zones,  # Map-wide utility barriers
+                        'smoke_time_remaining': str(smoke_time_remaining),  # {zone: seconds_left}
+                        'molly_time_remaining': str(molly_time_remaining),  # {zone: seconds_left}
                         'utility_thrown': all_utility_thrown,  # Full window utility saved here
                         'time_remaining_on_bomb': time_remaining_on_bomb,  # Time-varying covariate
                         'ct_count_at_plant': ct_count_at_plant,
@@ -1237,17 +1350,7 @@ for demo_path in demo_files:
                 if len(player_ticks) == 0 or not isinstance(player_ticks, pd.DataFrame):
                     continue
                 
-                # Check if this CT player picks up a kit during retake window
-                kit_pickup_tick = None
-                player_had_kit_at_plant = player in ct_kits_at_plant
-                for idx in range(1, len(player_ticks)):
-                    prev_row = player_ticks.iloc[idx-1]
-                    curr_row = player_ticks.iloc[idx]
-                    prev_kit = prev_row.get('has_defuser', False) if 'has_defuser' in prev_row.index else False
-                    curr_kit = curr_row.get('has_defuser', False) if 'has_defuser' in curr_row.index else False
-                    if not prev_kit and curr_kit:
-                        kit_pickup_tick = curr_row['tick']
-                        break
+                # T players don't use defuse kits, so no kit tracking needed
                 
                 current_zone = None
                 zone_entry_tick = None
@@ -1326,9 +1429,44 @@ for demo_path in demo_files:
                             else:
                                 player_weapon_current = t_weapons_dict.get(player, 'Unknown')
                             
+                            # Check utility state at zone_entry_tick
+                            active_utility = get_active_utility_at_tick(
+                                smoke_detonate, smoke_expire,
+                                inferno_start, inferno_expire,
+                                flash_detonate,
+                                zone_entry_tick, classifier, ticks,
+                                window_before=2*64  # 2 seconds for flash effects
+                            )
+                            
+                            # Is player in a smoke?
+                            player_in_smoke = any(smoke['zone'] == current_zone for smoke in active_utility['smokes'])
+                            
+                            # Is player in a molly?
+                            player_in_molly = any(molly['zone'] == current_zone for molly in active_utility['mollies'])
+                            
+                            # Was player recently flashed? (any flash within 2s)
+                            player_flashed = len(active_utility['recent_flashes']) > 0
+                            
+                            # Map-wide active utility zones (affects all players' hazard rates)
+                            active_smoke_zones = [s['zone'] for s in active_utility['smokes']]
+                            active_molly_zones = [m['zone'] for m in active_utility['mollies']]
+                            
+                            # Calculate time remaining for each smoke/molly (seconds until dissipation)
+                            smoke_time_remaining = {
+                                s['zone']: round((s['expire_tick'] - plant_tick) / 64.0, 2)
+                                for s in active_utility['smokes']
+                            }
+                            molly_time_remaining = {
+                                m['zone']: round((m['expire_tick'] - plant_tick) / 64.0, 2)
+                                for m in active_utility['mollies']
+                            }
+                            
                             # Note: utility_thrown is tracked for full window, saved once at end
                             
                             t_episodes.append({
+                                'demo_file': str(demo_path),  # For grouping episodes by retake
+                                'round_num': round_num,  # For grouping episodes by retake
+                                'plant_tick': plant_tick,  # For grouping episodes by retake
                                 'zone': current_zone,
                                 'duration_ticks': duration_ticks,
                                 'damage_taken_gun': damage_taken_gun,
@@ -1341,6 +1479,11 @@ for demo_path in demo_files:
                                 'plant_spot': plant_spot,
                                 'round_winner': winner_team,
                                 'player_name': player,
+                                'in_smoke': player_in_smoke,  # Active utility state (individual)
+                                'in_molly': player_in_molly,  # Active utility state (individual)
+                                'flashed': player_flashed,  # Active utility state (individual)
+                                'active_smoke_zones': active_smoke_zones,  # Map-wide utility barriers
+                                'active_molly_zones': active_molly_zones,  # Map-wide utility barriers
                                 'utility_thrown': {},  # Per-episode tracking removed, using full-window below
                                 'time_remaining_on_bomb': time_remaining_on_bomb,  # Time-varying covariate
                                 'ct_count_at_plant': ct_count_at_plant,
@@ -1435,8 +1578,43 @@ for demo_path in demo_files:
                     else:
                         player_weapon_current = t_weapons_dict.get(player, 'Unknown')
                     
+                    # Check utility state at zone_entry_tick
+                    active_utility = get_active_utility_at_tick(
+                        smoke_detonate, smoke_expire,
+                        inferno_start, inferno_expire,
+                        flash_detonate,
+                        zone_entry_tick, classifier, ticks,
+                        window_before=2*64  # 2 seconds for flash effects
+                    )
+                    
+                    # Is player in a smoke?
+                    player_in_smoke = any(smoke['zone'] == current_zone for smoke in active_utility['smokes'])
+                    
+                    # Is player in a molly?
+                    player_in_molly = any(molly['zone'] == current_zone for molly in active_utility['mollies'])
+                    
+                    # Was player recently flashed? (any flash within 2s)
+                    player_flashed = len(active_utility['recent_flashes']) > 0
+                    
+                    # Map-wide active utility zones (affects all players' hazard rates)
+                    active_smoke_zones = [s['zone'] for s in active_utility['smokes']]
+                    active_molly_zones = [m['zone'] for m in active_utility['mollies']]
+                    
+                    # Calculate time remaining for each smoke/molly (seconds until dissipation)
+                    smoke_time_remaining = {
+                        s['zone']: round((s['expire_tick'] - plant_tick) / 64.0, 2)
+                        for s in active_utility['smokes']
+                    }
+                    molly_time_remaining = {
+                        m['zone']: round((m['expire_tick'] - plant_tick) / 64.0, 2)
+                        for m in active_utility['mollies']
+                    }
+                    
                     # Save final episode with full-window utility
                     t_episodes.append({
+                        'demo_file': str(demo_path),  # For grouping episodes by retake
+                        'round_num': round_num,  # For grouping episodes by retake
+                        'plant_tick': plant_tick,  # For grouping episodes by retake
                         'zone': current_zone,
                         'duration_ticks': duration_ticks,
                         'damage_taken_gun': damage_taken_gun,
@@ -1449,6 +1627,13 @@ for demo_path in demo_files:
                         'plant_spot': plant_spot,
                         'round_winner': winner_team,
                         'player_name': player,
+                        'in_smoke': player_in_smoke,  # Active utility state (individual)
+                        'in_molly': player_in_molly,  # Active utility state (individual)
+                        'flashed': player_flashed,  # Active utility state (individual)
+                        'active_smoke_zones': active_smoke_zones,  # Map-wide utility barriers
+                        'active_molly_zones': active_molly_zones,  # Map-wide utility barriers
+                        'smoke_time_remaining': str(smoke_time_remaining),  # {zone: seconds_left}
+                        'molly_time_remaining': str(molly_time_remaining),  # {zone: seconds_left}
                         'utility_thrown': all_utility_thrown,  # Full window utility saved here
                         'time_remaining_on_bomb': time_remaining_on_bomb,  # Time-varying covariate
                         'ct_count_at_plant': ct_count_at_plant,
@@ -1478,7 +1663,9 @@ for demo_path in demo_files:
             print(" OK")
         
     except Exception as e:
+        import traceback
         print(f"  Error in {demo_path.name}: {str(e)[:80]}")
+        traceback.print_exc()
 
 print(f"\n{'='*80}")
 print(f"RESULTS: Analyzed {total_retakes} retakes from {demos_processed} demos")
@@ -1630,17 +1817,72 @@ output = {
     }
 }
 
-output_path = Path("data/player_positioning_episodes.json")
-with open(output_path, 'w') as f:
-    json.dump(output, f, indent=2)
-
-print(f"\n{'='*80}")
-print(f"Saved positioning episodes to: {output_path}")
-
+# Skip JSON save (numpy type serialization issues) - go straight to Parquet
 # Convert to Parquet for efficient Cox modeling
 print(f"\nConverting to Parquet format for modeling...")
 ct_df = pd.DataFrame(ct_episodes)
 t_df = pd.DataFrame(t_episodes)
+
+# Fix type inconsistencies for Parquet compatibility
+# Strategy: Convert dict columns to JSON strings, ensure scalar columns have consistent types
+print(f"  Fixing data types for Parquet compatibility...")
+
+import json as json_module
+import numpy as np
+
+def make_json_serializable(obj):
+    """Recursively convert numpy types to native Python types."""
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+
+def convert_to_json_safe(obj):
+    """Convert object to JSON string, handling numpy types in nested dicts."""
+    if isinstance(obj, dict):
+        safe_dict = make_json_serializable(obj)
+        return json_module.dumps(safe_dict)
+    else:
+        return str(obj)
+
+# Columns that contain dict objects - convert to JSON strings
+dict_columns = [
+    'ct_health_at_plant', 't_health_at_plant',
+    'player_armor_at_plant', 'player_armor_current',
+    'ct_armor_at_plant', 't_armor_at_plant',
+    'ct_weapons_at_plant', 't_weapons_at_plant',
+    'player_weapon_at_plant', 'player_weapon_current',
+    'utility_thrown',
+    'active_smoke_zones', 'active_molly_zones',
+    'smoke_time_remaining', 'molly_time_remaining'  # {zone: seconds_left}
+]
+
+for col in dict_columns:
+    if col in ct_df.columns:
+        ct_df[col] = ct_df[col].apply(convert_to_json_safe)
+    if col in t_df.columns:
+        t_df[col] = t_df[col].apply(convert_to_json_safe)
+
+# All other object columns - ensure they're strings (handles mixed str/numpy.int32 in round_winner)
+for col in ct_df.select_dtypes(include=['object']).columns:
+    if col not in dict_columns:
+        ct_df[col] = ct_df[col].astype(str)
+
+for col in t_df.select_dtypes(include=['object']).columns:
+    if col not in dict_columns:
+        t_df[col] = t_df[col].astype(str)
+
+print(f"  Data types fixed. CT: {len(ct_df)} rows, T: {len(t_df)} rows")
 
 ct_parquet_path = Path("data/ct_episodes.parquet")
 t_parquet_path = Path("data/t_episodes.parquet")
@@ -1652,13 +1894,3 @@ t_df.to_parquet(t_parquet_path, index=False)
 print(f"  CT episodes saved to: {ct_parquet_path} ({len(ct_df)} episodes)")
 print(f"  T episodes saved to: {t_parquet_path} ({len(t_df)} episodes)")
 print(f"{'='*80}")
-print("\nThis data integrates with:")
-print("  - Zone connectivity (threat cone pathfinding)")
-print("  - Audio tracker (sound events affect hazard via information gain)")
-print("  - Survival model (P(survival | position, time, enemies, info))")
-print("\nNext steps for Cox Proportional Hazards Modeling:")
-print("  1. Load Parquet files: pd.read_parquet('data/ct_episodes.parquet')")
-print("  2. Prepare covariates: zone, plant_spot, time_remaining_on_bomb, player_hp_current, player_armor_current, player_weapon_current, etc.")
-print("  3. Fit Cox model: CoxPHFitter().fit(df, duration_col='duration_ticks', event_col='died')")
-print("  4. Analyze hazard ratios and survival curves by zone/equipment/advantage")
-print("  5. Generate paper results and visualizations")

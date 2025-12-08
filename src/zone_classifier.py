@@ -209,29 +209,6 @@ class MirageZoneClassifier:
     def assign_postplant_zone_A(self, player_track: List[Dict], 
                                 plant_time: float,
                                 tick_rate: int = 64,
-                                damage_events: List[Dict] = None) -> Dict:
-        """
-        Assign A-site post-plant zone using dwell algorithm.
-        
-        Args:
-            player_track: List of position dicts with keys: 'tick', 'x', 'y', 'z', 'alive'
-            plant_time: Tick when bomb was planted
-            tick_rate: Server tick rate (default 64)
-        
-        Returns:
-            Dict with:
-                - zone: Final assigned zone name
-                - dwell_seconds: Time spent in final zone
-                - dwell_fraction: Fraction of window in final zone
-                - rotated: True if player left A-site during window
-                - died: True if player died during window
-                - all_zones: Debug info - all zones visited with durations
-        """
-        constants = self.constants
-        
-    def assign_postplant_zone_A(self, player_track: List[Dict], 
-                                plant_time: float,
-                                tick_rate: int = 64,
                                 damage_events: List[Dict] = None,
                                 retake_start_tick: int = None) -> Dict:
         """
